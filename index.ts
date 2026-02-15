@@ -52,15 +52,10 @@ export class MemriseClient {
 
     const access = await this.getAccessToken(username, password, clientId);
     this.accessToken = access.access_token.access_token;
-    this.client.defaults.headers.common['authorization'] = `Bearer ${this.accessToken}`;
+    // Don't set authorization header globally - v1.25 endpoints use session cookies only
+    // this.client.defaults.headers.common['authorization'] = `Bearer ${this.accessToken}`;
 
-    console.log('Access token response:', JSON.stringify(access, null, 2));
-    console.log('Using access token:', this.accessToken);
-
-    const webAuthResponse = await this.authenticateWeb(this.accessToken);
-    console.log('Web auth response:', JSON.stringify(webAuthResponse, null, 2));
-    console.log('Final cookies:', this.cookie);
-    console.log('Final CSRF token:', this.csrfToken);
+    await this.authenticateWeb(this.accessToken);
   }
 
   private mergeSetCookieCookies(setCookieValues: string[]): void {
