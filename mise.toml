@@ -1,3 +1,7 @@
 [tools]
 biome = "latest"
 bun = "latest"
+
+[tasks.format]
+run = "biome format . --write"
+description = "Format source files with Biome"
