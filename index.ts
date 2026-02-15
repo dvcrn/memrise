@@ -10,7 +10,8 @@ import type {
   GetLearnableResponse,
   EnsureCsrfResponse,
   AccessTokenResponse,
-  AuthWebResponse
+  AuthWebResponse,
+  PoolColumnConfig
 } from './types';
 
 const DEFAULT_CLIENT_ID = '1e739f5e77704b57a703';
@@ -234,6 +235,27 @@ export class MemriseClient {
     return response.data;
   }
 
+  async addThingToCourse(
+    courseId: string | number,
+    columns: Record<string, string>,
+    levelIndex: number = 0
+  ): Promise<AddThingResponse> {
+    await this.ensureAuthenticated();
+
+    const levels = await this.getCourseLevels(courseId);
+
+    if (levels.length === 0) {
+      throw new Error(`No levels found for course ${courseId}`);
+    }
+
+    if (levelIndex < 0 || levelIndex >= levels.length) {
+      throw new Error(`Level index ${levelIndex} out of range. Course has ${levels.length} levels.`);
+    }
+
+    const levelId = String(levels[levelIndex].id);
+    return this.addThingToLevel(levelId, columns);
+  }
+
   async searchPool(
     poolId: string | number,
     columns: Record<string, string>,
@@ -355,12 +377,23 @@ export class MemriseClient {
       const batch = uniqueIds.slice(i, i + concurrency);
       const promises = batch.map(id => this.getLearnable(id));
       const results = await Promise.all(promises);
-      
+
       results.forEach(item => {
         if (item) items.push(item);
       });
     }
 
     return items;
+  }
+
+  async getCourseColumns(courseId: string | number): Promise<Record<string, PoolColumnConfig>> {
+    const levels = await this.getCourseLevels(courseId);
+
+    if (levels.length === 0) {
+      throw new Error(`No levels found for course ${courseId}`);
+    }
+
+    const poolInfo = await this.getPool(levels[0].pool_id);
+    return poolInfo.pool.columns;
   }
 }
