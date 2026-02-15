@@ -7,5 +7,5 @@ run = "biome format . --write"
 description = "Format source files with Biome"
 
 [tasks.build]
-run = "tsc"
+run = "bun run build"
 description = "Build TypeScript files for publishing"
