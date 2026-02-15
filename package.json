@@ -1,16 +1,39 @@
 {
 	"name": "memrise",
-	"module": "index.ts",
+	"version": "0.1.0",
+	"description": "Unofficial Memrise API client for Node.js and Bun",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"module": "dist/index.js",
 	"type": "module",
-	"private": true,
-	"devDependencies": {
-		"@types/bun": "latest"
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsc",
+		"prepublishOnly": "bun run build"
 	},
-	"peerDependencies": {
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/dvcrn/memrise.git"
+	},
+	"keywords": [
+		"memrise",
+		"api",
+		"language-learning",
+		"flashcards"
+	],
+	"author": "David Mohl",
+	"license": "MIT",
+	"bugs": {
+		"url": "https://github.com/dvcrn/memrise/issues"
+	},
+	"homepage": "https://github.com/dvcrn/memrise#readme",
+	"devDependencies": {
+		"@types/bun": "latest",
 		"typescript": "^5"
 	},
 	"dependencies": {
-		"axios": "^1.13.2",
-		"cheerio": "^1.1.2"
+		"axios": "^1.13.2"
 	}
 }

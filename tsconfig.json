@@ -2,17 +2,20 @@
 	"compilerOptions": {
 		// Environment setup & latest features
 		"lib": ["ESNext"],
-		"target": "ESNext",
-		"module": "Preserve",
+		"target": "ES2022",
+		"module": "ESNext",
 		"moduleDetection": "force",
-		"jsx": "react-jsx",
 		"allowJs": true,
 
 		// Bundler mode
 		"moduleResolution": "bundler",
-		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": true,
-		"noEmit": true,
+
+		// Output for publishing
+		"outDir": "./dist",
+		"declaration": true,
+		"declarationMap": true,
+		"sourceMap": true,
 
 		// Best practices
 		"strict": true,
@@ -20,10 +23,15 @@
 		"noFallthroughCasesInSwitch": true,
 		"noUncheckedIndexedAccess": true,
 		"noImplicitOverride": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
 
 		// Some stricter flags (disabled by default)
 		"noUnusedLocals": false,
 		"noUnusedParameters": false,
 		"noPropertyAccessFromIndexSignature": false
-	}
+	},
+	"include": ["index.ts", "types.ts"],
+	"exclude": ["node_modules", "dist", "test_*.ts"]
 }

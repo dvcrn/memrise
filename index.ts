@@ -73,6 +73,7 @@ export class MemriseClient {
 
 		for (const item of setCookieValues) {
 			const firstPair = item.split(";")[0];
+			if (!firstPair) continue;
 			const [name, ...rest] = firstPair.split("=");
 			if (!name || rest.length === 0) continue;
 			this.cookieJar.set(name, rest.join("="));
@@ -86,7 +87,7 @@ export class MemriseClient {
 
 	private extractFromCookie(cookieHeader: string, name: string): string | null {
 		const match = cookieHeader.match(new RegExp(`${name}=([^;]+)`));
-		return match ? match[1] : null;
+		return match?.[1] ?? null;
 	}
 
 	private async ensureAuthenticated(): Promise<void> {
@@ -281,7 +282,12 @@ export class MemriseClient {
 			);
 		}
 
-		const levelId = String(levels[levelIndex].id);
+		const level = levels[levelIndex];
+		if (!level) {
+			throw new Error(`Level at index ${levelIndex} not found`);
+		}
+
+		const levelId = String(level.id);
 		return this.addThingToLevel(levelId, columns);
 	}
 
@@ -441,7 +447,12 @@ export class MemriseClient {
 			throw new Error(`No levels found for course ${courseId}`);
 		}
 
-		const poolInfo = await this.getPool(levels[0].pool_id);
+		const firstLevel = levels[0];
+		if (!firstLevel) {
+			throw new Error(`No levels found for course ${courseId}`);
+		}
+
+		const poolInfo = await this.getPool(firstLevel.pool_id);
 		return poolInfo.pool.columns;
 	}
 }

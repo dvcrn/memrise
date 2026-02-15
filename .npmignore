@@ -1,0 +1,15 @@
+# Test files
+test_*.ts
+
+# Source files (we publish dist/)
+index.ts
+types.ts
+
+# Config files
+tsconfig.json
+fnox.toml
+
+# Development
+node_modules/
+.DS_Store
+*.log

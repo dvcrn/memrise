@@ -104,6 +104,16 @@ export interface GetDashboardCoursesResponse {
 	has_more_pages: boolean;
 }
 
+export interface CourseLevel {
+	course_id: number;
+	id: number;
+	index: number;
+	kind: number;
+	learnable_ids?: number[];
+	pool_id: number;
+	title: string;
+}
+
 export interface Learnable {
 	id: number;
 	learning_element: string;
