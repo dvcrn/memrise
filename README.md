@@ -38,6 +38,18 @@ await client.addThingToCourse("123456", {
 // Get course levels
 const levels = await client.getCourseLevels("123456");
 
+// Get all items from a course
+const allItems = await client.getCourseItems("123456");
+
+// Get limited items from a course (first 10 items)
+const limitedItems = await client.getCourseItems("123456", 10);
+
+// Get all items from a specific level (level 0)
+const levelItems = await client.getLevelItems("123456", 0);
+
+// Get limited items from a specific level (first 5 items from level 1)
+const limitedLevelItems = await client.getLevelItems("123456", 1, 5);
+
 // Add items to a specific level
 await client.addThingToLevel("level-id", {
   "1": "word",
@@ -63,17 +75,29 @@ new MemriseClient(username: string, password: string, clientId?: string)
 
 ### Methods
 
+**Course Management:**
+
 - `getMyCourses(limit?, offset?)` - Get your courses
 - `getCourseById(courseId)` - Get course by ID
 - `getCourseBySlug(slug)` - Get course by slug
 - `getCourseLevels(courseId)` - Get levels for a course
 - `getCourseColumns(courseId)` - Get column configuration for a course
-- `getCourseItems(courseId)` - Get all items in a course
+
+**Reading Items:**
+
+- `getCourseItems(courseId, limit?)` - Get items from a course (optionally limit results)
+- `getLevelItems(courseId, levelIndex, limit?)` - Get items from a specific level (optionally limit results)
+- `getLearnable(learnableId)` - Get a single learnable item
+
+**Adding Items:**
+
 - `addThingToCourse(courseId, columns, levelIndex?)` - Add item to course (default: first level)
 - `addThingToLevel(levelId, columns)` - Add item to specific level
+
+**Pool Operations:**
+
 - `searchPool(poolId, columns, excludeThingIds?, originalOnly?)` - Search pool
 - `getPool(poolId)` - Get pool information
-- `getLearnable(learnableId)` - Get learnable item
 
 ## License
 

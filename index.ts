@@ -415,18 +415,66 @@ export class MemriseClient {
 		}
 	}
 
-	async getCourseItems(courseId: string | number): Promise<Learnable[]> {
+	async getCourseItems(
+		courseId: string | number,
+		limit?: number,
+	): Promise<Learnable[]> {
 		const levels = await this.getCourseLevels(courseId);
 		const learnableIds = levels.flatMap((level) => level.learnable_ids || []);
 		const uniqueIds = [...new Set(learnableIds)];
+
+		// Apply limit if specified
+		const idsToFetch = limit ? uniqueIds.slice(0, limit) : uniqueIds;
 
 		// Fetch in batches (concurrently) to avoid overloading but speed up
 		// Since we don't have a batch API, we do parallel requests with a limit
 		const items: Learnable[] = [];
 		const concurrency = 5;
 
-		for (let i = 0; i < uniqueIds.length; i += concurrency) {
-			const batch = uniqueIds.slice(i, i + concurrency);
+		for (let i = 0; i < idsToFetch.length; i += concurrency) {
+			const batch = idsToFetch.slice(i, i + concurrency);
+			const promises = batch.map((id) => this.getLearnable(id));
+			const results = await Promise.all(promises);
+
+			results.forEach((item) => {
+				if (item) items.push(item);
+			});
+		}
+
+		return items;
+	}
+
+	async getLevelItems(
+		courseId: string | number,
+		levelIndex: number = 0,
+		limit?: number,
+	): Promise<Learnable[]> {
+		const levels = await this.getCourseLevels(courseId);
+
+		if (levels.length === 0) {
+			throw new Error(`No levels found for course ${courseId}`);
+		}
+
+		if (levelIndex < 0 || levelIndex >= levels.length) {
+			throw new Error(
+				`Level index ${levelIndex} out of range. Course has ${levels.length} levels.`,
+			);
+		}
+
+		const level = levels[levelIndex];
+		if (!level) {
+			throw new Error(`Level at index ${levelIndex} not found`);
+		}
+
+		const learnableIds = level.learnable_ids || [];
+		const idsToFetch = limit ? learnableIds.slice(0, limit) : learnableIds;
+
+		// Fetch in batches (concurrently)
+		const items: Learnable[] = [];
+		const concurrency = 5;
+
+		for (let i = 0; i < idsToFetch.length; i += concurrency) {
+			const batch = idsToFetch.slice(i, i + concurrency);
 			const promises = batch.map((id) => this.getLearnable(id));
 			const results = await Promise.all(promises);
 
