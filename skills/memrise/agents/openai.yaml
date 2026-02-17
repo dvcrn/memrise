@@ -1,0 +1,4 @@
+interface:
+  display_name: "Memcli"
+  short_description: "Use memcli for Memrise course workflows"
+  default_prompt: "Use memcli to inspect courses, levels, words, and add items with safe command examples."
