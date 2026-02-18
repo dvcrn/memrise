@@ -43,6 +43,9 @@ await client.addThingToCourse("123456", {
 // Get course levels
 const levels = await client.getCourseLevels("123456");
 
+// Get course levels including empty levels visible in the editor
+const allLevels = await client.getCourseLevelsIncludingEmpty("123456");
+
 // Get all items from a course
 const allItems = await client.getCourseItems("123456");
 
@@ -60,6 +63,12 @@ await client.addThingToLevel("level-id", {
   "1": "word",
   "2": "definition",
 });
+
+// Add a new level to a course (auto-uses pool from first existing level)
+await client.addLevelToCourse("123456");
+
+// Add a new level to a course with explicit pool_id and kind
+await client.addLevelToCourse("123456", "7772442", "things");
 
 // Search pool
 const results = await client.searchPool("pool-id", {
@@ -86,6 +95,7 @@ new MemriseClient(username: string, password: string, clientId?: string)
 - `getCourseById(courseId)` - Get course by ID
 - `getCourseBySlug(slug)` - Get course by slug
 - `getCourseLevels(courseId)` - Get levels for a course
+- `getCourseLevelsIncludingEmpty(courseId, slug?)` - Get levels including empty draft levels from the edit view
 - `getCourseColumns(courseId)` - Get column configuration for a course
 
 **Reading Items:**
@@ -98,6 +108,7 @@ new MemriseClient(username: string, password: string, clientId?: string)
 
 - `addThingToCourse(courseId, columns, levelIndex?)` - Add item to course (default: first level)
 - `addThingToLevel(levelId, columns)` - Add item to specific level
+- `addLevelToCourse(courseId, poolId?, kind?)` - Add a new level to a course
 
 **Pool Operations:**
 

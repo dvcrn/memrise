@@ -1,6 +1,7 @@
 import axios from "axios";
 import type {
 	AddThingResponse,
+	AddLevelResponse,
 	SearchPoolResponse,
 	GetPoolResponse,
 	GetDashboardCoursesResponse,
@@ -92,6 +93,54 @@ export class MemriseClient {
 
 	private async ensureAuthenticated(): Promise<void> {
 		await this.authReady;
+	}
+
+	private parseEditorLevelMetadata(
+		editHtml: string,
+	): Array<{ id: number; pool_id: number; index: number; title: string }> {
+		const levels: Array<{
+			id: number;
+			pool_id: number;
+			index: number;
+			title: string;
+		}> = [];
+		const seen = new Set<number>();
+
+		const startTagRegex =
+			/<div id="l_(\d+)"\s+class="level[^"]*"\s+data-level-id="(\d+)"\s+data-pool-id="(\d+)">/g;
+
+		for (const match of editHtml.matchAll(startTagRegex)) {
+			const fromIdAttr = Number(match[2]);
+			const fromStartTag = Number(match[1]);
+			const poolId = Number(match[3]);
+			const id = Number.isFinite(fromIdAttr) ? fromIdAttr : fromStartTag;
+
+			if (!Number.isFinite(id) || !Number.isFinite(poolId) || seen.has(id)) {
+				continue;
+			}
+
+			const startIndex = match.index ?? 0;
+			const snippet = editHtml.slice(startIndex, startIndex + 3500);
+			const indexMatch = snippet.match(/<div class="level-handle">(\d+)<\/div>/);
+			const titleMatch = snippet.match(
+				/<h3 class="level-name"[^>]*>\s*([\s\S]*?)\s*<\/h3>/,
+			);
+
+			const parsedIndex = Number(indexMatch?.[1]);
+			const index = Number.isFinite(parsedIndex) ? parsedIndex : levels.length + 1;
+			const titleRaw = (titleMatch?.[1] ?? "").replace(/<[^>]*>/g, "").trim();
+			const title = titleRaw || `Level ${index}`;
+
+			levels.push({
+				id,
+				pool_id: poolId,
+				index,
+				title,
+			});
+			seen.add(id);
+		}
+
+		return levels;
 	}
 
 	async getCsrfToken(): Promise<string | null> {
@@ -263,6 +312,43 @@ export class MemriseClient {
 		return response.data;
 	}
 
+	async addLevelToCourse(
+		courseId: string | number,
+		poolId?: string | number,
+		kind: string = "things",
+	): Promise<AddLevelResponse> {
+		await this.ensureAuthenticated();
+
+		let resolvedPoolId = poolId;
+		if (resolvedPoolId == null) {
+			const levels = await this.getCourseLevels(courseId);
+			const firstLevel = levels[0];
+			if (!firstLevel) {
+				throw new Error(
+					`No levels found for course ${courseId}. Provide poolId explicitly.`,
+				);
+			}
+			resolvedPoolId = firstLevel.pool_id;
+		}
+
+		const data = new URLSearchParams();
+		data.append("course_id", String(courseId));
+		data.append("kind", kind);
+		data.append("pool_id", String(resolvedPoolId));
+
+		const response = await this.client.post<AddLevelResponse>(
+			"/ajax/level/add/",
+			data,
+			{
+				headers: {
+					"content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+				},
+			},
+		);
+
+		return response.data;
+	}
+
 	async addThingToCourse(
 		courseId: string | number,
 		columns: Record<string, string>,
@@ -397,6 +483,56 @@ export class MemriseClient {
 		);
 
 		return response.data.levels;
+	}
+
+	async getCourseLevelsIncludingEmpty(
+		courseId: string | number,
+		slug?: string,
+	): Promise<CourseLevel[]> {
+		await this.ensureAuthenticated();
+
+		const apiLevels = await this.getCourseLevels(courseId, slug);
+		const byId = new Map<string, CourseLevel>();
+
+		for (const level of apiLevels) {
+			byId.set(String(level.id), level);
+		}
+
+		let resolvedSlug = slug;
+		if (!resolvedSlug) {
+			const course = await this.getCourseById(courseId);
+			if (!course) {
+				throw new Error(`Course ${courseId} not found`);
+			}
+			resolvedSlug = course.slug;
+		}
+
+		const response = await this.client.get<string>(
+			`/course/${courseId}/${resolvedSlug}/edit/`,
+		);
+		const editorLevels = this.parseEditorLevelMetadata(response.data);
+
+		for (const editorLevel of editorLevels) {
+			const existing = byId.get(String(editorLevel.id));
+			if (existing) {
+				continue;
+			}
+
+			byId.set(String(editorLevel.id), {
+				course_id: Number(courseId),
+				id: editorLevel.id,
+				index: editorLevel.index,
+				kind: 1,
+				learnable_ids: [],
+				pool_id: editorLevel.pool_id,
+				title: editorLevel.title,
+			});
+		}
+
+		return [...byId.values()].sort((a, b) => {
+			if (a.index !== b.index) return a.index - b.index;
+			return a.id - b.id;
+		});
 	}
 
 	async getLearnable(learnableId: string | number): Promise<Learnable | null> {

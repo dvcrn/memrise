@@ -27,6 +27,13 @@ export interface AddThingResponse {
 	rendered_thing: string;
 }
 
+export interface AddLevelResponse {
+	success: boolean;
+	level?: CourseLevel;
+	rendered_level?: string;
+	[key: string]: unknown;
+}
+
 export interface SearchPoolResultItem {
 	id: number;
 	columns: Record<string, { val: string }>;
