@@ -8,11 +8,6 @@ Unofficial Memrise Community Courses API client JavaScript
 npm install memrise
 ```
 
-## Usage as agent skill
-
-- Either add `dvcrn/skills` or `dvcrn/memrise` as skill repository which should discover the `memrise` skill
-- You can also do a `npx skills add dvcrn/skills` or `npx skills add dvcrn/memrise`
-
 ## Usage
 
 ```typescript
