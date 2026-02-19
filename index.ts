@@ -2,6 +2,8 @@ import axios from "axios";
 import type {
 	AddThingResponse,
 	AddLevelResponse,
+	SetLevelTitleResponse,
+	DeleteLevelResponse,
 	SearchPoolResponse,
 	GetPoolResponse,
 	GetDashboardCoursesResponse,
@@ -338,6 +340,48 @@ export class MemriseClient {
 
 		const response = await this.client.post<AddLevelResponse>(
 			"/ajax/level/add/",
+			data,
+			{
+				headers: {
+					"content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+				},
+			},
+		);
+
+		return response.data;
+	}
+
+	async setLevelTitle(
+		levelId: string | number,
+		newTitle: string,
+	): Promise<SetLevelTitleResponse> {
+		await this.ensureAuthenticated();
+
+		const data = new URLSearchParams();
+		data.append("level_id", String(levelId));
+		data.append("new_val", newTitle);
+
+		const response = await this.client.post<SetLevelTitleResponse>(
+			"/ajax/level/set_title/",
+			data,
+			{
+				headers: {
+					"content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+				},
+			},
+		);
+
+		return response.data;
+	}
+
+	async deleteLevel(levelId: string | number): Promise<DeleteLevelResponse> {
+		await this.ensureAuthenticated();
+
+		const data = new URLSearchParams();
+		data.append("level_id", String(levelId));
+
+		const response = await this.client.post<DeleteLevelResponse>(
+			"/ajax/level/delete/",
 			data,
 			{
 				headers: {

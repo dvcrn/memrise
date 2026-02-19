@@ -34,6 +34,16 @@ export interface AddLevelResponse {
 	[key: string]: unknown;
 }
 
+export interface SetLevelTitleResponse {
+	success: boolean;
+	[key: string]: unknown;
+}
+
+export interface DeleteLevelResponse {
+	success: boolean;
+	[key: string]: unknown;
+}
+
 export interface SearchPoolResultItem {
 	id: number;
 	columns: Record<string, { val: string }>;

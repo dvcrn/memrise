@@ -65,6 +65,12 @@ await client.addLevelToCourse("123456");
 // Add a new level to a course with explicit pool_id and kind
 await client.addLevelToCourse("123456", "7772442", "things");
 
+// Rename a level
+await client.setLevelTitle("level-id", "02/19");
+
+// Delete a level
+await client.deleteLevel("level-id");
+
 // Search pool
 const results = await client.searchPool("pool-id", {
   "1": "search term",
@@ -104,6 +110,8 @@ new MemriseClient(username: string, password: string, clientId?: string)
 - `addThingToCourse(courseId, columns, levelIndex?)` - Add item to course (default: first level)
 - `addThingToLevel(levelId, columns)` - Add item to specific level
 - `addLevelToCourse(courseId, poolId?, kind?)` - Add a new level to a course
+- `setLevelTitle(levelId, newTitle)` - Rename a level
+- `deleteLevel(levelId)` - Delete a level
 
 **Pool Operations:**
 
