@@ -71,6 +71,9 @@ await client.setLevelTitle("level-id", "02/19");
 // Delete a level
 await client.deleteLevel("level-id");
 
+// Remove a thing from a level
+await client.deleteThingFromLevel("level-id", "thing-id");
+
 // Search pool
 const results = await client.searchPool("pool-id", {
   "1": "search term",
@@ -112,6 +115,7 @@ new MemriseClient(username: string, password: string, clientId?: string)
 - `addLevelToCourse(courseId, poolId?, kind?)` - Add a new level to a course
 - `setLevelTitle(levelId, newTitle)` - Rename a level
 - `deleteLevel(levelId)` - Delete a level
+- `deleteThingFromLevel(levelId, thingId)` - Remove a thing from a level
 
 **Pool Operations:**
 

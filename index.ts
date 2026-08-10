@@ -4,6 +4,7 @@ import type {
 	AddLevelResponse,
 	SetLevelTitleResponse,
 	DeleteLevelResponse,
+	DeleteThingResponse,
 	SearchPoolResponse,
 	GetPoolResponse,
 	GetDashboardCoursesResponse,
@@ -123,13 +124,17 @@ export class MemriseClient {
 
 			const startIndex = match.index ?? 0;
 			const snippet = editHtml.slice(startIndex, startIndex + 3500);
-			const indexMatch = snippet.match(/<div class="level-handle">(\d+)<\/div>/);
+			const indexMatch = snippet.match(
+				/<div class="level-handle">(\d+)<\/div>/,
+			);
 			const titleMatch = snippet.match(
 				/<h3 class="level-name"[^>]*>\s*([\s\S]*?)\s*<\/h3>/,
 			);
 
 			const parsedIndex = Number(indexMatch?.[1]);
-			const index = Number.isFinite(parsedIndex) ? parsedIndex : levels.length + 1;
+			const index = Number.isFinite(parsedIndex)
+				? parsedIndex
+				: levels.length + 1;
 			const titleRaw = (titleMatch?.[1] ?? "").replace(/<[^>]*>/g, "").trim();
 			const title = titleRaw || `Level ${index}`;
 
@@ -382,6 +387,29 @@ export class MemriseClient {
 
 		const response = await this.client.post<DeleteLevelResponse>(
 			"/ajax/level/delete/",
+			data,
+			{
+				headers: {
+					"content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+				},
+			},
+		);
+
+		return response.data;
+	}
+
+	async deleteThingFromLevel(
+		levelId: string | number,
+		thingId: string | number,
+	): Promise<DeleteThingResponse> {
+		await this.ensureAuthenticated();
+
+		const data = new URLSearchParams();
+		data.append("level_id", String(levelId));
+		data.append("thing_id", String(thingId));
+
+		const response = await this.client.post<DeleteThingResponse>(
+			"/ajax/level/thing_remove/",
 			data,
 			{
 				headers: {

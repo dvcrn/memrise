@@ -44,6 +44,11 @@ export interface DeleteLevelResponse {
 	[key: string]: unknown;
 }
 
+export interface DeleteThingResponse {
+	success: boolean;
+	[key: string]: unknown;
+}
+
 export interface SearchPoolResultItem {
 	id: number;
 	columns: Record<string, { val: string }>;
