@@ -59,6 +59,27 @@ await client.addThingToLevel("level-id", {
   "2": "definition",
 });
 
+// Bulk add items to a specific level
+await client.bulkAddToLevel("level-id", [
+  ["word", "definition"],
+  ["word2", "definition2"],
+]);
+
+// Bulk add to a course (default: first level)
+await client.bulkAddToCourse("123456", [
+  ["hello", "こんにちは"],
+  ["goodbye", "さようなら"],
+]);
+
+// Bulk add to the course database only (not attached to a level)
+await client.bulkAddToPool("pool-id", [
+  { "1": "hello", "2": "こんにちは" },
+  { "1": "goodbye", "2": "さようなら" },
+]);
+
+// Or pass the raw delimited text the site uses
+await client.bulkAddToLevel("level-id", "foo,bar\nfoo2,bar2");
+
 // Add a new level to a course (auto-uses pool from first existing level)
 await client.addLevelToCourse("123456");
 
@@ -112,6 +133,9 @@ new MemriseClient(username: string, password: string, clientId?: string)
 
 - `addThingToCourse(courseId, columns, levelIndex?)` - Add item to course (default: first level)
 - `addThingToLevel(levelId, columns)` - Add item to specific level
+- `bulkAddToCourse(courseId, rows, levelIndex?, delimiter?)` - Bulk add items to a course (default: first level)
+- `bulkAddToLevel(levelId, rows, delimiter?)` - Bulk add items to a specific level
+- `bulkAddToPool(poolId, rows, delimiter?)` - Bulk add items to a pool (not attached to a level)
 - `addLevelToCourse(courseId, poolId?, kind?)` - Add a new level to a course
 - `setLevelTitle(levelId, newTitle)` - Rename a level
 - `deleteLevel(levelId)` - Delete a level

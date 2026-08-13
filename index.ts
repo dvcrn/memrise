@@ -1,24 +1,79 @@
 import axios from "axios";
 import type {
-	AddThingResponse,
+	AccessTokenResponse,
 	AddLevelResponse,
-	SetLevelTitleResponse,
+	AddThingResponse,
+	AuthWebResponse,
+	BulkAddResponse,
+	BulkThingRows,
+	BulkWordDelimiter,
+	CourseLevel,
+	DashboardCourse,
 	DeleteLevelResponse,
 	DeleteThingResponse,
-	SearchPoolResponse,
-	GetPoolResponse,
-	GetDashboardCoursesResponse,
-	DashboardCourse,
-	CourseLevel,
-	Learnable,
-	GetLearnableResponse,
 	EnsureCsrfResponse,
-	AccessTokenResponse,
-	AuthWebResponse,
+	GetDashboardCoursesResponse,
+	GetLearnableResponse,
+	GetPoolResponse,
+	Learnable,
 	PoolColumnConfig,
+	SearchPoolResponse,
+	SetLevelTitleResponse,
 } from "./types";
 
 const DEFAULT_CLIENT_ID = "1e739f5e77704b57a703";
+
+const BULK_DELIMITER_CHARS: Record<BulkWordDelimiter, string> = {
+	comma: ",",
+	tab: "\t",
+	semicolon: ";",
+};
+
+function orderedValuesFromRecord(row: Record<string, string>): string[] {
+	const numericKeys = Object.keys(row)
+		.filter((key) => /^\d+$/.test(key))
+		.map(Number)
+		.sort((a, b) => a - b);
+
+	if (numericKeys.length === 0) {
+		return [];
+	}
+
+	const maxKey = numericKeys[numericKeys.length - 1];
+	if (maxKey == null) {
+		return [];
+	}
+
+	const values: string[] = [];
+	for (let i = 1; i <= maxKey; i++) {
+		values.push(row[String(i)] ?? "");
+	}
+	return values;
+}
+
+export function formatBulkThingData(
+	rows: BulkThingRows,
+	delimiter: BulkWordDelimiter = "comma",
+): string {
+	if (typeof rows === "string") {
+		return rows;
+	}
+
+	const sep = BULK_DELIMITER_CHARS[delimiter];
+	return rows
+		.map((row) => {
+			const values = Array.isArray(row) ? row : orderedValuesFromRecord(row);
+			for (const value of values) {
+				if (value.includes(sep) || /[\r\n]/.test(value)) {
+					throw new Error(
+						`Bulk row value contains the '${delimiter}' delimiter or a newline: ${JSON.stringify(value)}`,
+					);
+				}
+			}
+			return values.join(sep);
+		})
+		.join("\n");
+}
 
 export class MemriseClient {
 	private client = axios.create({
@@ -447,6 +502,94 @@ export class MemriseClient {
 
 		const levelId = String(level.id);
 		return this.addThingToLevel(levelId, columns);
+	}
+
+	async bulkAddToPool(
+		poolId: string | number,
+		rows: BulkThingRows,
+		delimiter: BulkWordDelimiter = "comma",
+	): Promise<BulkAddResponse> {
+		await this.ensureAuthenticated();
+
+		const payload = formatBulkThingData(rows, delimiter);
+		if (payload.trim() === "") {
+			throw new Error("No rows provided for bulk add");
+		}
+
+		const data = new URLSearchParams();
+		data.append("word_delimiter", delimiter);
+		data.append("data", payload);
+		data.append("pool_id", String(poolId));
+
+		const response = await this.client.post<BulkAddResponse>(
+			"/ajax/pool/add_things_in_bulk/",
+			data,
+			{
+				headers: {
+					"content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+				},
+			},
+		);
+
+		return response.data;
+	}
+
+	async bulkAddToLevel(
+		levelId: string | number,
+		rows: BulkThingRows,
+		delimiter: BulkWordDelimiter = "comma",
+	): Promise<BulkAddResponse> {
+		await this.ensureAuthenticated();
+
+		const payload = formatBulkThingData(rows, delimiter);
+		if (payload.trim() === "") {
+			throw new Error("No rows provided for bulk add");
+		}
+
+		const data = new URLSearchParams();
+		data.append("word_delimiter", delimiter);
+		data.append("data", payload);
+		data.append("level_id", String(levelId));
+
+		const response = await this.client.post<BulkAddResponse>(
+			"/ajax/level/add_things_in_bulk/",
+			data,
+			{
+				headers: {
+					"content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+				},
+			},
+		);
+
+		return response.data;
+	}
+
+	async bulkAddToCourse(
+		courseId: string | number,
+		rows: BulkThingRows,
+		levelIndex: number = 0,
+		delimiter: BulkWordDelimiter = "comma",
+	): Promise<BulkAddResponse> {
+		await this.ensureAuthenticated();
+
+		const levels = await this.getCourseLevels(courseId);
+
+		if (levels.length === 0) {
+			throw new Error(`No levels found for course ${courseId}`);
+		}
+
+		if (levelIndex < 0 || levelIndex >= levels.length) {
+			throw new Error(
+				`Level index ${levelIndex} out of range. Course has ${levels.length} levels.`,
+			);
+		}
+
+		const level = levels[levelIndex];
+		if (!level) {
+			throw new Error(`Level at index ${levelIndex} not found`);
+		}
+
+		return this.bulkAddToLevel(level.id, rows, delimiter);
 	}
 
 	async searchPool(

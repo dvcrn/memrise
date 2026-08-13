@@ -27,6 +27,17 @@ export interface AddThingResponse {
 	rendered_thing: string;
 }
 
+export type BulkWordDelimiter = "comma" | "tab" | "semicolon";
+
+export type BulkThingRow = string[] | Record<string, string>;
+
+export type BulkThingRows = string | BulkThingRow[];
+
+export interface BulkAddResponse {
+	success: boolean;
+	things: MemriseThing[];
+}
+
 export interface AddLevelResponse {
 	success: boolean;
 	level?: CourseLevel;
