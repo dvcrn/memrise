@@ -94,6 +94,58 @@ Cross-checked four independent ways over 1257 items:
 `thingIdFromLearnableId()` implements this. The reverse direction is **not**
 derivable without knowing the column pair.
 
+### Converting between the two
+
+The conversion is deliberately **explicit** rather than baked into every
+response. Raw API responses are left exactly as the API returned them:
+`Learnable.id` is a learnable ID, `MemriseThing.id` is a thing ID, and neither
+grows a derived sibling field.
+
+That is a design decision, not an oversight:
+
+- **It could not be symmetric.** `Learnable` and `CourseLevel` could carry a
+  derived thing ID, but `MemriseThing` and `SearchPoolResultItem` cannot carry a
+  learnable ID — that needs a level's column pair. An API where "responses carry
+  both" holds only half the time is worse than one where it never does.
+- **Provenance matters.** An ID the server sent and one computed from an
+  undocumented bit layout are different kinds of fact. Blending them into one
+  object makes the rule above unenforceable, because nothing distinguishes them
+  at the call site.
+- **Blast radius.** If the packing ever changes, one function is wrong instead
+  of every response type silently carrying bad data.
+
+| Direction | Call | Needs |
+| --- | --- | --- |
+| learnable → thing | `thingIdFromLearnableId(id)` | nothing, pure |
+| learnable → columns | `columnPairFromLearnableId(id)` | nothing, pure |
+| thing → learnable | `learnableIdFromThingId(id, pair)` | the column pair |
+| thing → learnable, safely | `client.getLearnableIdInLevel(courseId, levelId, thingId)` | one request |
+| level's pairing | `client.getLevelColumnPair(courseId, levelId)` | one request |
+
+Prefer `getLearnableIdInLevel`: it reads the pair off the level and returns
+`null` when the thing is not in it, instead of handing back an ID that will not
+resolve. Verified that a rebuilt ID resolves to the right learnable on levels
+using both `0x0102` and `0x0302` off the same pool, and that a wrong pairing
+resolves to nothing.
+
+Domain types this SDK defines carry both IDs where both are derivable —
+`getLevelThings()` yields `{ thingId, learnableId, … }` — so the bit unpacking
+lives in one place instead of in every consumer. Raw network response types
+(`MemriseThing`, `Learnable`, `SearchPoolResultItem`) stay exactly as the
+server sent them.
+
+Note the enrichment cannot be symmetric: a domain type built from a learnable
+can carry a thing ID, but one built from a thing cannot carry a learnable ID
+without a level's column pair. So it is a per-type decision, never an
+optional field that is sometimes populated.
+
+`ThingId` and `LearnableId` are branded types, erased at runtime, so the
+compiler rejects passing one where the other belongs. At runtime,
+`assertThingId()` catches the same mistake by magnitude — thing IDs sit around
+2^29 and learnable IDs start near 2^43, a comfortable 14-bit gap — and reports
+the ID the caller probably meant. That check is for error quality only;
+correctness still comes from verifying membership against the level.
+
 > **Use it for lookups, not for destructive calls.** This packing is an
 > undocumented implementation detail. It is safe where a wrong answer surfaces
 > as "not found" — membership checks, enumerating a level. Never feed a derived
@@ -331,8 +383,10 @@ former.
   `{"1": "hola"}` will. Read them from `/ajax/pool/get/`.
 - **`pool/search/` cannot list a pool.** An empty filter is a 500, not an empty
   result. See the table above.
-- **Level indices skip empty levels** in the JSON endpoint, so index-based
-  addressing silently drifts. Resolve real level IDs instead.
+- **Level *positions* skip empty levels** in the JSON endpoint, so indexing
+  into the returned array silently drifts. Each level's own `index` field is
+  1-based and authoritative — it matches the editor, gaps included — so match
+  on that rather than on array position.
 - **Learnable IDs are not thing IDs**, but they contain them. Passing a
   learnable ID to a thing endpoint fails.
 - **Learnable IDs exceed 2³²** (~3.3×10¹³) but stay inside `Number.MAX_SAFE_INTEGER`,

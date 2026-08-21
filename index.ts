@@ -1,10 +1,19 @@
 import axios from "axios";
+import { asLearnableId, asThingId } from "./types";
+
+export { asLearnableId, asThingId } from "./types";
+export type * from "./types";
 import type {
 	AccessTokenResponse,
+	ColumnPair,
+	CourseItem,
+	LearnableId,
+	ThingId,
 	AddLevelResponse,
 	AddThingResponse,
 	AuthWebResponse,
 	BulkAddResponse,
+	BulkThingRow,
 	BulkThingRows,
 	BulkWordDelimiter,
 	CourseLevel,
@@ -91,8 +100,67 @@ const LEARNABLE_THING_SHIFT = 65536;
  */
 const LEARNABLE_BATCH_SIZE = 200;
 
-export function thingIdFromLearnableId(learnableId: number): number {
-	return Math.floor(learnableId / LEARNABLE_THING_SHIFT);
+/**
+ * Recover the thing ID a learnable was built from.
+ *
+ * Pure arithmetic, no request. The reverse needs the column pair, so see
+ * {@link learnableIdFromThingId} and {@link MemriseClient.getLearnableIdInLevel}.
+ */
+export function thingIdFromLearnableId(learnableId: number): ThingId {
+	return asThingId(Math.floor(learnableId / LEARNABLE_THING_SHIFT));
+}
+
+/**
+ * Which pair of columns a learnable tests, e.g. column 1 prompting column 2.
+ */
+export function columnPairFromLearnableId(learnableId: number): ColumnPair {
+	const pair = learnableId % LEARNABLE_THING_SHIFT;
+	return {
+		learningColumn: (pair >> 8) & 0xff,
+		definitionColumn: pair & 0xff,
+	};
+}
+
+/**
+ * Build a learnable ID from a thing and the column pair being tested.
+ *
+ * The column pair belongs to the level, not the thing: one pool can feed
+ * levels that test different pairings. Prefer
+ * {@link MemriseClient.getLearnableIdInLevel}, which reads the pair from the
+ * level and checks the thing is actually in it, over calling this directly.
+ */
+export function learnableIdFromThingId(
+	thingId: number,
+	pair: ColumnPair,
+): LearnableId {
+	return asLearnableId(
+		thingId * LEARNABLE_THING_SHIFT +
+			((pair.learningColumn & 0xff) << 8) +
+			(pair.definitionColumn & 0xff),
+	);
+}
+
+/**
+ * Largest plausible thing ID. Thing IDs are pool row numbers (~2^29 today);
+ * learnable IDs start around 2^43 because of the 16 bit shift, so anything
+ * above this is a learnable ID that reached the wrong parameter.
+ */
+const MAX_PLAUSIBLE_THING_ID = 0xffffffff;
+
+/**
+ * Guard a value that must be a thing ID.
+ *
+ * This exists for the error message, not for correctness -- callers that
+ * mutate a level still verify membership. It turns the most common mistake
+ * into an answer instead of a confusing failure downstream.
+ */
+export function assertThingId(id: number, context = "This call"): ThingId {
+	if (id > MAX_PLAUSIBLE_THING_ID) {
+		throw new Error(
+			`${context} needs a thingId but was given ${id}, which is a learnableId. Did you mean ${thingIdFromLearnableId(id)}? (learnableId = thing plus the column pair being tested; see docs/api.md)`,
+		);
+	}
+	return asThingId(id);
 }
 
 export class MemriseClient {
@@ -110,6 +178,8 @@ export class MemriseClient {
 	private accessToken: string | null;
 	private cookieJar: Map<string, string>;
 	private authReady: Promise<void>;
+	private poolIdByLevel = new Map<string, number>();
+	private columnKeysByPool = new Map<string, Map<string, string>>();
 
 	constructor(
 		username: string,
@@ -372,14 +442,16 @@ export class MemriseClient {
 	}
 
 	async addThingToLevel(
-		levelId: string,
+		levelId: string | number,
 		columns: Record<string, string>,
 	): Promise<AddThingResponse> {
 		await this.ensureAuthenticated();
 
+		const resolved = await this.resolveColumnsForLevel(levelId, columns);
+
 		const data = new URLSearchParams();
-		data.append("columns", JSON.stringify(columns));
-		data.append("level_id", levelId);
+		data.append("columns", JSON.stringify(resolved));
+		data.append("level_id", String(levelId));
 
 		const response = await this.client.post<AddThingResponse>(
 			"/ajax/level/thing/add/",
@@ -477,6 +549,7 @@ export class MemriseClient {
 		levelId: string | number,
 		thingId: string | number,
 	): Promise<DeleteThingResponse> {
+		assertThingId(Number(thingId), "deleteThingFromLevel");
 		await this.ensureAuthenticated();
 
 		const data = new URLSearchParams();
@@ -496,32 +569,16 @@ export class MemriseClient {
 		return response.data;
 	}
 
+	/**
+	 * Add one item to a course, addressed by the level number Memrise shows.
+	 */
 	async addThingToCourse(
 		courseId: string | number,
 		columns: Record<string, string>,
-		levelIndex: number = 0,
+		levelNumber: number = 1,
 	): Promise<AddThingResponse> {
-		await this.ensureAuthenticated();
-
-		const levels = await this.getCourseLevels(courseId);
-
-		if (levels.length === 0) {
-			throw new Error(`No levels found for course ${courseId}`);
-		}
-
-		if (levelIndex < 0 || levelIndex >= levels.length) {
-			throw new Error(
-				`Level index ${levelIndex} out of range. Course has ${levels.length} levels.`,
-			);
-		}
-
-		const level = levels[levelIndex];
-		if (!level) {
-			throw new Error(`Level at index ${levelIndex} not found`);
-		}
-
-		const levelId = String(level.id);
-		return this.addThingToLevel(levelId, columns);
+		const level = await this.getLevelByNumber(courseId, levelNumber);
+		return this.addThingToLevel(level.id, columns);
 	}
 
 	async bulkAddToPool(
@@ -531,7 +588,10 @@ export class MemriseClient {
 	): Promise<BulkAddResponse> {
 		await this.ensureAuthenticated();
 
-		const payload = formatBulkThingData(rows, delimiter);
+		const payload = formatBulkThingData(
+			await this.resolveRowsForPool(poolId, rows),
+			delimiter,
+		);
 		if (payload.trim() === "") {
 			throw new Error("No rows provided for bulk add");
 		}
@@ -561,7 +621,10 @@ export class MemriseClient {
 	): Promise<BulkAddResponse> {
 		await this.ensureAuthenticated();
 
-		const payload = formatBulkThingData(rows, delimiter);
+		const payload = formatBulkThingData(
+			await this.resolveRowsForLevel(levelId, rows),
+			delimiter,
+		);
 		if (payload.trim() === "") {
 			throw new Error("No rows provided for bulk add");
 		}
@@ -584,31 +647,16 @@ export class MemriseClient {
 		return response.data;
 	}
 
+	/**
+	 * Bulk add to a course, addressed by the level number Memrise shows.
+	 */
 	async bulkAddToCourse(
 		courseId: string | number,
 		rows: BulkThingRows,
-		levelIndex: number = 0,
+		levelNumber: number = 1,
 		delimiter: BulkWordDelimiter = "comma",
 	): Promise<BulkAddResponse> {
-		await this.ensureAuthenticated();
-
-		const levels = await this.getCourseLevels(courseId);
-
-		if (levels.length === 0) {
-			throw new Error(`No levels found for course ${courseId}`);
-		}
-
-		if (levelIndex < 0 || levelIndex >= levels.length) {
-			throw new Error(
-				`Level index ${levelIndex} out of range. Course has ${levels.length} levels.`,
-			);
-		}
-
-		const level = levels[levelIndex];
-		if (!level) {
-			throw new Error(`Level at index ${levelIndex} not found`);
-		}
-
+		const level = await this.getLevelByNumber(courseId, levelNumber);
 		return this.bulkAddToLevel(level.id, rows, delimiter);
 	}
 
@@ -807,54 +855,43 @@ export class MemriseClient {
 		return this.getLearnables(idsToFetch);
 	}
 
-	async getLevelItems(
+	/**
+	 * Look up a level by the number Memrise shows in the editor.
+	 *
+	 * Levels carry their own 1-based `index`, and it is authoritative: the
+	 * levels endpoint omits empty levels but the survivors keep their real
+	 * numbers, so counting positions in the returned array drifts by however
+	 * many empty levels precede it. Always match on `index`.
+	 */
+	async getLevelByNumber(
 		courseId: string | number,
-		levelIndex: number = 0,
-		limit?: number,
-	): Promise<Learnable[]> {
+		levelNumber: number,
+	): Promise<CourseLevel> {
 		const levels = await this.getCourseLevels(courseId);
+		const level = levels.find((l) => l.index === levelNumber);
+		if (level) return level;
 
-		if (levels.length === 0) {
-			throw new Error(`No levels found for course ${courseId}`);
-		}
-
-		if (levelIndex < 0 || levelIndex >= levels.length) {
-			throw new Error(
-				`Level index ${levelIndex} out of range. Course has ${levels.length} levels.`,
-			);
-		}
-
-		const level = levels[levelIndex];
-		if (!level) {
-			throw new Error(`Level at index ${levelIndex} not found`);
-		}
-
-		const learnableIds = level.learnable_ids || [];
-		const idsToFetch = limit ? learnableIds.slice(0, limit) : learnableIds;
-
-		// Fetch in batches (concurrently)
-		const items: Learnable[] = [];
-		const concurrency = 5;
-
-		for (let i = 0; i < idsToFetch.length; i += concurrency) {
-			const batch = idsToFetch.slice(i, i + concurrency);
-			const promises = batch.map((id) => this.getLearnable(id));
-			const results = await Promise.all(promises);
-
-			results.forEach((item) => {
-				if (item) items.push(item);
-			});
-		}
-
-		return items;
+		const available = levels.map((l) => l.index).join(", ");
+		throw new Error(
+			`Course ${courseId} has no level numbered ${levelNumber}. Levels with content are numbered: ${available}. Numbers are 1-based and match the Memrise editor; gaps are empty levels, which the API does not return.`,
+		);
 	}
 
 	/**
-	 * Fetch several learnables in one round trip.
-	 *
-	 * /v1.25/learnables/ accepts a comma separated list of ids. The URL is
-	 * capped server side (793 ids answers 414), so requests are chunked.
+	 * Items in a level, addressed by the level number shown in Memrise.
 	 */
+	async getLevelItems(
+		courseId: string | number,
+		levelNumber: number = 1,
+		limit?: number,
+	): Promise<Learnable[]> {
+		const level = await this.getLevelByNumber(courseId, levelNumber);
+		const learnableIds = level.learnable_ids || [];
+		const idsToFetch = limit ? learnableIds.slice(0, limit) : learnableIds;
+
+		return this.getLearnables(idsToFetch);
+	}
+
 	async getLearnables(
 		learnableIds: Array<string | number>,
 	): Promise<Learnable[]> {
@@ -888,7 +925,9 @@ export class MemriseClient {
 		const levels = await this.getCourseLevels(courseId);
 		const level = levels.find((l) => String(l.id) === String(levelId));
 		if (!level) {
-			throw new Error(`Level ${levelId} is not part of course ${courseId}.`);
+			throw new Error(
+				`Level ${levelId} was not found on course ${courseId}. Note that the levels endpoint omits empty levels, so a level that exists but has no things will also land here — use getCourseLevelsIncludingEmpty to see those.`,
+			);
 		}
 		return level;
 	}
@@ -903,7 +942,7 @@ export class MemriseClient {
 	async getLevelThingIds(
 		courseId: string | number,
 		levelId: string | number,
-	): Promise<number[]> {
+	): Promise<ThingId[]> {
 		const level = await this.getLevel(courseId, levelId);
 		return (level.learnable_ids ?? []).map(thingIdFromLearnableId);
 	}
@@ -925,13 +964,180 @@ export class MemriseClient {
 			const learnable = byId.get(String(learnableId));
 			return {
 				thingId: thingIdFromLearnableId(learnableId),
-				learnableId,
+				learnableId: asLearnableId(learnableId),
 				learningElement: learnable?.learning_element ?? "",
 				definitionElement: learnable?.definition_element ?? "",
 				itemType: learnable?.item_type ?? "",
 				difficulty: learnable?.difficulty ?? "",
 			};
 		});
+	}
+
+	/**
+	 * The pair of columns a level tests, read from its learnables.
+	 *
+	 * Uniform within a level, but a pool can host levels with different
+	 * pairings, so this is a per-level question. Returns null if the level
+	 * reports no learnables to read the pair from. Note that a wholly empty
+	 * level is invisible to the levels endpoint and throws instead.
+	 */
+	async getLevelColumnPair(
+		courseId: string | number,
+		levelId: string | number,
+	): Promise<ColumnPair | null> {
+		const level = await this.getLevel(courseId, levelId);
+		const first = (level.learnable_ids ?? [])[0];
+		return first === undefined ? null : columnPairFromLearnableId(first);
+	}
+
+	/**
+	 * Find the learnable ID for a thing as it appears in a given level.
+	 *
+	 * Returns null when the thing is not in the level, rather than handing back
+	 * an ID that does not resolve.
+	 */
+	async getLearnableIdInLevel(
+		courseId: string | number,
+		levelId: string | number,
+		thingId: string | number,
+	): Promise<LearnableId | null> {
+		const level = await this.getLevel(courseId, levelId);
+		const wanted = String(thingId);
+		const match = (level.learnable_ids ?? []).find(
+			(learnableId) => String(thingIdFromLearnableId(learnableId)) === wanted,
+		);
+		return match === undefined ? null : asLearnableId(match);
+	}
+
+	/**
+	 * The pool behind a level, without needing the course ID.
+	 *
+	 * The levels JSON is course-scoped, so this reads the pool ID off the
+	 * level editor instead. Only a single attribute is extracted, and the
+	 * result is cached for the life of the client.
+	 */
+	async getPoolIdForLevelId(levelId: string | number): Promise<number> {
+		const key = String(levelId);
+		const cached = this.poolIdByLevel.get(key);
+		if (cached !== undefined) return cached;
+
+		await this.ensureAuthenticated();
+		const response = await this.client.get<{
+			success: boolean;
+			rendered: string;
+		}>("/ajax/level/editing_html/", {
+			params: { level_id: levelId, _: Date.now() },
+		});
+
+		const poolId = Number(
+			/data-pool-id="(\d+)"/.exec(response.data?.rendered ?? "")?.[1],
+		);
+		if (!Number.isFinite(poolId)) {
+			throw new Error(`Could not determine the pool behind level ${levelId}.`);
+		}
+
+		this.poolIdByLevel.set(key, poolId);
+		return poolId;
+	}
+
+	private async columnKeysFor(
+		poolId: string | number,
+	): Promise<Map<string, string>> {
+		const key = String(poolId);
+		const cached = this.columnKeysByPool.get(key);
+		if (cached) return cached;
+
+		const { pool } = await this.getPool(poolId);
+		const byLabel = new Map<string, string>();
+		for (const [columnKey, config] of Object.entries(pool.columns)) {
+			byLabel.set(config.label.trim().toLowerCase(), columnKey);
+		}
+
+		this.columnKeysByPool.set(key, byLabel);
+		return byLabel;
+	}
+
+	/**
+	 * Translate a row keyed by column name into the numeric keys Memrise
+	 * wants. Numeric keys pass through untouched, so callers that already
+	 * speak the wire format keep working and pay no extra request.
+	 *
+	 * Names are matched case-insensitively against the pool's column labels.
+	 */
+	async resolveColumnKeys(
+		poolId: string | number,
+		row: Record<string, string>,
+	): Promise<Record<string, string>> {
+		if (!Object.keys(row).some((key) => !/^\d+$/.test(key))) {
+			return { ...row };
+		}
+
+		const byLabel = await this.columnKeysFor(poolId);
+		const resolved: Record<string, string> = {};
+		for (const [key, value] of Object.entries(row)) {
+			if (/^\d+$/.test(key)) {
+				resolved[key] = value;
+				continue;
+			}
+			const numeric = byLabel.get(key.trim().toLowerCase());
+			if (!numeric) {
+				throw new Error(
+					`Pool ${poolId} has no column named "${key}". Available columns: ${[...byLabel.keys()].join(", ")}.`,
+				);
+			}
+			resolved[numeric] = value;
+		}
+		return resolved;
+	}
+
+	/** Resolve named columns in a single row against the pool behind a level. */
+	private async resolveColumnsForLevel(
+		levelId: string | number,
+		row: Record<string, string>,
+	): Promise<Record<string, string>> {
+		if (!Object.keys(row).some((key) => !/^\d+$/.test(key))) return { ...row };
+		return this.resolveColumnKeys(
+			await this.getPoolIdForLevelId(levelId),
+			row,
+		);
+	}
+
+	/** Resolve named columns in bulk rows against the pool behind a level. */
+	private async resolveRowsForLevel(
+		levelId: string | number,
+		rows: BulkThingRows,
+	): Promise<BulkThingRows> {
+		if (typeof rows === "string") return rows;
+		const needsLookup = rows.some(
+			(row) =>
+				!Array.isArray(row) &&
+				Object.keys(row).some((key) => !/^\d+$/.test(key)),
+		);
+		if (!needsLookup) return rows;
+		return this.resolveRowsForPool(await this.getPoolIdForLevelId(levelId), rows);
+	}
+
+	/** Resolve named columns in bulk rows against a pool. */
+	private async resolveRowsForPool(
+		poolId: string | number,
+		rows: BulkThingRows,
+	): Promise<BulkThingRows> {
+		if (typeof rows === "string" || Array.isArray(rows) === false) return rows;
+
+		const needsLookup = rows.some(
+			(row) =>
+				!Array.isArray(row) &&
+				Object.keys(row).some((key) => !/^\d+$/.test(key)),
+		);
+		if (!needsLookup) return rows;
+
+		const resolved: BulkThingRow[] = [];
+		for (const row of rows) {
+			resolved.push(
+				Array.isArray(row) ? row : await this.resolveColumnKeys(poolId, row),
+			);
+		}
+		return resolved;
 	}
 
 	async getCourseColumns(

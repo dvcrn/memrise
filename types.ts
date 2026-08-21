@@ -1,3 +1,29 @@
+/**
+ * Memrise has two ID namespaces that are easy to confuse. These brands are
+ * compile-time only -- they erase to plain numbers at runtime -- but they stop
+ * a learnable ID being passed where a thing ID belongs.
+ *
+ * IDs handed back by this SDK are already branded. To brand a number from
+ * elsewhere, use `asThingId` / `asLearnableId`, which is deliberately an
+ * explicit act.
+ */
+declare const THING_ID: unique symbol;
+declare const LEARNABLE_ID: unique symbol;
+
+/** A row in a pool. What the mutation endpoints operate on. */
+export type ThingId = number & { readonly [THING_ID]: true };
+
+/** A thing plus the column pair being tested. What levels report. */
+export type LearnableId = number & { readonly [LEARNABLE_ID]: true };
+
+export function asThingId(id: number): ThingId {
+	return id as ThingId;
+}
+
+export function asLearnableId(id: number): LearnableId {
+	return id as LearnableId;
+}
+
 export interface MemriseColumn {
 	val: string;
 	kind: string;
@@ -70,11 +96,17 @@ export interface SearchPoolResponse {
 	result: SearchPoolResultItem[];
 }
 
+/** A pair of pool columns: one prompts, the other answers. */
+export interface ColumnPair {
+	learningColumn: number;
+	definitionColumn: number;
+}
+
 export interface LevelThing {
 	/** Pool-authoring identity. This is what deleteThingFromLevel needs. */
-	thingId: number;
+	thingId: ThingId;
 	/** Course-facing identity the thing ID was derived from. */
-	learnableId: number;
+	learnableId: LearnableId;
 	learningElement: string;
 	definitionElement: string;
 	itemType: string;
@@ -163,6 +195,19 @@ export interface Learnable {
 	learning_element: string;
 	definition_element: string;
 	item_type: string;
+	difficulty: string;
+}
+
+/**
+ * A learnable as this SDK hands it out: the raw fields plus the thing ID it
+ * was built from, so callers never have to unpack the ID themselves.
+ */
+export interface CourseItem {
+	learnableId: LearnableId;
+	thingId: ThingId;
+	learningElement: string;
+	definitionElement: string;
+	itemType: string;
 	difficulty: string;
 }
 

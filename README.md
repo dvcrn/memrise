@@ -133,18 +133,21 @@ new MemriseClient(username: string, password: string, clientId?: string)
 **Reading Items:**
 
 - `getCourseItems(courseId, limit?)` - Get items from a course (optionally limit results)
-- `getLevelItems(courseId, levelIndex, limit?)` - Get items from a specific level (optionally limit results)
+- `getLevelItems(courseId, levelNumber, limit?)` - Get items from a level by its Memrise number (1-based)
+- `getLevelByNumber(courseId, levelNumber)` - Resolve a level by its Memrise number
 - `getLearnable(learnableId)` - Get a single learnable item
 - `getLearnables(learnableIds)` - Fetch many learnables in one batched request
 - `getLevel(courseId, levelId)` - Look up a single level
 - `getLevelThingIds(courseId, levelId)` - Thing IDs attached to a level, in level order
 - `getLevelThings(courseId, levelId)` - Things in a level, each with its thing ID and the learnable text
+- `getLevelColumnPair(courseId, levelId)` - Which columns a level tests
+- `getLearnableIdInLevel(courseId, levelId, thingId)` - Learnable ID for a thing in a level, or null
 
 **Adding Items:**
 
-- `addThingToCourse(courseId, columns, levelIndex?)` - Add item to course (default: first level)
+- `addThingToCourse(courseId, columns, levelNumber?)` - Add item to course (default: level 1)
 - `addThingToLevel(levelId, columns)` - Add item to specific level
-- `bulkAddToCourse(courseId, rows, levelIndex?, delimiter?)` - Bulk add items to a course (default: first level)
+- `bulkAddToCourse(courseId, rows, levelNumber?, delimiter?)` - Bulk add items to a course (default: level 1)
 - `bulkAddToLevel(levelId, rows, delimiter?)` - Bulk add items to a specific level
 - `bulkAddToPool(poolId, rows, delimiter?)` - Bulk add items to a pool (not attached to a level)
 - `addLevelToCourse(courseId, poolId?, kind?)` - Add a new level to a course
@@ -156,6 +159,49 @@ new MemriseClient(username: string, password: string, clientId?: string)
 
 - `searchPool(poolId, columns, excludeThingIds?, originalOnly?)` - Search pool. Requires at least one non-empty column value; an empty filter throws (the endpoint answers 500)
 - `getPool(poolId)` - Get pool information
+- `getPoolIdForLevelId(levelId)` - Pool behind a level, without needing the course ID
+- `resolveColumnKeys(poolId, row)` - Translate column names to numeric keys
+
+## Column names
+
+Memrise stores columns under numeric keys, but you can use their labels:
+
+```typescript
+await client.bulkAddToLevel(levelId, [
+  { Word: "หมา (maa)", Definition: "dog" },
+  { Word: "แมว (maew)", Definition: "cat" },
+]);
+```
+
+Names are matched case-insensitively and resolved against the pool, which is
+looked up once and cached. Numeric keys still work and skip the lookup
+entirely, so nothing gets slower:
+
+```typescript
+await client.bulkAddToLevel(levelId, [{ "1": "หมา (maa)", "2": "dog" }]);
+```
+
+A name that does not exist fails with the list of ones that do:
+
+```
+Pool 7778482 has no column named "Wrod". Available columns: word, definition, audio.
+```
+
+## Level numbers
+
+Level numbers are the 1-based numbers Memrise shows in the editor, and they are
+matched against each level's own `index`:
+
+```typescript
+await client.getLevelItems(courseId, 3);
+await client.getLevelByNumber(courseId, 3);
+```
+
+This matters because the levels endpoint **omits empty levels** while the
+survivors keep their real numbers. Counting positions in the returned array
+drifts by however many empty levels precede it. Asking for a number that is
+empty or missing is an error naming the numbers that do exist, rather than
+silently returning the wrong level.
 
 ## Thing IDs and learnable IDs
 
@@ -176,6 +222,27 @@ This packing is an undocumented implementation detail, so treat it as a fast
 path rather than a guarantee: it is safe to use for lookups and membership
 checks, where a wrong answer surfaces as "not found", but never derive an ID
 for a destructive call that was not confirmed against the API first.
+
+The SDK keeps these apart for you rather than making you remember which is
+which:
+
+- **Types that carry both.** `getLevelThings()` returns `{ thingId,
+  learnableId, … }`, so you never unpack an ID by hand.
+- **The compiler catches mix-ups.** `ThingId` and `LearnableId` are branded
+  types. They erase to plain numbers at runtime, but passing one where the
+  other belongs is a compile error. Use `asThingId()` / `asLearnableId()` to
+  brand a number from elsewhere.
+- **So does the runtime.** Passing a learnable ID to `deleteThingFromLevel`
+  throws immediately with the thing ID you probably meant, rather than failing
+  somewhere downstream.
+
+Only one direction is derivable without a request:
+
+| Direction | Call |
+| --- | --- |
+| learnable → thing | `thingIdFromLearnableId(learnableId)` |
+| learnable → columns tested | `columnPairFromLearnableId(learnableId)` |
+| thing → learnable | `client.getLearnableIdInLevel(courseId, levelId, thingId)` |
 
 See [docs/api.md](docs/api.md) for the evidence behind this, the full endpoint
 reference, and the quirks worth knowing before adding new calls.

@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import {
+	assertThingId,
+	asThingId,
+	columnPairFromLearnableId,
 	formatBulkThingData,
+	learnableIdFromThingId,
 	MemriseClient,
 	thingIdFromLearnableId,
 } from "./index";
@@ -105,5 +109,67 @@ test("the low bits are the column pair, not part of the thing ID", () => {
 test("thing IDs stay inside the safe integer range", () => {
 	for (const [learnableId] of LEARNABLE_TO_THING) {
 		expect(Number.isSafeInteger(learnableId)).toBe(true);
+	}
+});
+
+test("columnPairFromLearnableId reads the tested columns", () => {
+	// Pool 7776382 feeds levels testing column 1 -> 2 and column 3 -> 2.
+	expect(columnPairFromLearnableId(504696237 * 65536 + 0x0102)).toEqual({
+		learningColumn: 1,
+		definitionColumn: 2,
+	});
+	expect(columnPairFromLearnableId(504696237 * 65536 + 0x0302)).toEqual({
+		learningColumn: 3,
+		definitionColumn: 2,
+	});
+	expect(columnPairFromLearnableId(33075772588290)).toEqual({
+		learningColumn: 1,
+		definitionColumn: 2,
+	});
+});
+
+test("learnableIdFromThingId round-trips against recorded IDs", () => {
+	for (const [learnableId, thingId] of LEARNABLE_TO_THING) {
+		const pair = columnPairFromLearnableId(learnableId);
+		expect(learnableIdFromThingId(thingId, pair)).toBe(learnableId);
+	}
+});
+
+test("the same thing under two pairings gives two learnable IDs", () => {
+	const thingId = 504696237;
+	const a = learnableIdFromThingId(thingId, {
+		learningColumn: 1,
+		definitionColumn: 2,
+	});
+	const b = learnableIdFromThingId(thingId, {
+		learningColumn: 3,
+		definitionColumn: 2,
+	});
+	expect(a).not.toBe(b);
+	expect(thingIdFromLearnableId(a)).toBe(thingId);
+	expect(thingIdFromLearnableId(b)).toBe(thingId);
+});
+
+test("assertThingId accepts a thing ID unchanged", () => {
+	expect(assertThingId(504696237)).toBe(asThingId(504696237));
+});
+
+test("assertThingId rejects a learnable ID and names the right one", () => {
+	expect(() => assertThingId(33075772588290)).toThrow(
+		/needs a thingId but was given 33075772588290.*Did you mean 504696237/s,
+	);
+});
+
+test("assertThingId names the calling method in the error", () => {
+	expect(() => assertThingId(33075772588290, "deleteThingFromLevel")).toThrow(
+		/^deleteThingFromLevel needs a thingId/,
+	);
+});
+
+test("the thing/learnable magnitude gap is wide enough to tell them apart", () => {
+	// Observed live: thing IDs peak around 2^29, learnable IDs start near 2^43.
+	for (const [learnableId, thingId] of LEARNABLE_TO_THING) {
+		expect(thingId).toBeLessThan(0xffffffff);
+		expect(learnableId).toBeGreaterThan(0xffffffff);
 	}
 });
