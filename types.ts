@@ -208,6 +208,8 @@ export interface Learnable {
 export interface CourseItem {
 	learnableId: LearnableId;
 	thingId: ThingId;
+	/** Levels this item appears in. Normally one, but the API permits more. */
+	levelIds: number[];
 	learningElement: string;
 	definitionElement: string;
 	itemType: string;

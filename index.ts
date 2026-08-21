@@ -896,16 +896,41 @@ export class MemriseClient {
 		}
 	}
 
+	/**
+	 * Every item in a course, each tagged with the level it sits in.
+	 *
+	 * The level mapping is free -- it comes from the same levels response used
+	 * to collect the IDs -- and without it the result is a dead end, since
+	 * removing an item needs the level it belongs to.
+	 */
 	async getCourseItems(
 		courseId: string | number,
 		limit?: number,
-	): Promise<Learnable[]> {
+	): Promise<CourseItem[]> {
 		const levels = await this.getCourseLevels(courseId);
-		const learnableIds = levels.flatMap((level) => level.learnable_ids || []);
-		const uniqueIds = [...new Set(learnableIds)];
-		const idsToFetch = limit ? uniqueIds.slice(0, limit) : uniqueIds;
 
-		return this.getLearnables(idsToFetch);
+		const levelsByLearnable = new Map<number, number[]>();
+		for (const level of levels) {
+			for (const learnableId of level.learnable_ids ?? []) {
+				const existing = levelsByLearnable.get(learnableId);
+				if (existing) existing.push(level.id);
+				else levelsByLearnable.set(learnableId, [level.id]);
+			}
+		}
+
+		const uniqueIds = [...levelsByLearnable.keys()];
+		const idsToFetch = limit ? uniqueIds.slice(0, limit) : uniqueIds;
+		const learnables = await this.getLearnables(idsToFetch);
+
+		return learnables.map((learnable) => ({
+			learnableId: asLearnableId(learnable.id),
+			thingId: thingIdFromLearnableId(learnable.id),
+			levelIds: levelsByLearnable.get(learnable.id) ?? [],
+			learningElement: learnable.learning_element,
+			definitionElement: learnable.definition_element,
+			itemType: learnable.item_type,
+			difficulty: learnable.difficulty,
+		}));
 	}
 
 	/**

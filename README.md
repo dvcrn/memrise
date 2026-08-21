@@ -133,7 +133,7 @@ new MemriseClient(username: string, password: string, clientId?: string)
 
 **Reading Items:**
 
-- `getCourseItems(courseId, limit?)` - Get items from a course (optionally limit results)
+- `getCourseItems(courseId, limit?)` - Every item in a course, each tagged with its thingId and the levelIds it belongs to
 - `getLevelItems(courseId, levelNumber, limit?)` - Get items from a level by its Memrise number (1-based)
 - `getLevelByNumber(courseId, levelNumber)` - Resolve a level by its Memrise number
 - `getLearnable(learnableId)` - Get a single learnable item
