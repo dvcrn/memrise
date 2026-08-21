@@ -184,3 +184,22 @@ test("the thing/learnable magnitude gap is wide enough to tell them apart", () =
 		expect(learnableId).toBeGreaterThan(0xffffffff);
 	}
 });
+
+test("built output is loadable by Node's ESM resolver", async () => {
+	// TypeScript emits relative specifiers verbatim, so a runtime import of
+	// "./types" ships as-is and Node refuses it while Bun does not. This
+	// caught a published build that crashed on startup under Node.
+	const dist = await Bun.file(
+		new URL("./dist/index.js", import.meta.url).pathname,
+	)
+		.text()
+		.catch(() => "");
+
+	if (!dist) return; // dist not built in this run
+
+	const extensionless = [...dist.matchAll(/from\s+"(\.\.?\/[^"]*)"/g)]
+		.map((m) => m[1])
+		.filter((specifier) => !specifier.endsWith(".js"));
+
+	expect(extensionless).toEqual([]);
+});

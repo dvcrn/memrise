@@ -1,8 +1,8 @@
 import axios from "axios";
-import { asLearnableId, asThingId } from "./types";
+import { asLearnableId, asThingId } from "./types.js";
 
-export { asLearnableId, asThingId } from "./types";
-export type * from "./types";
+export { asLearnableId, asThingId } from "./types.js";
+export type * from "./types.js";
 import type {
 	AccessTokenResponse,
 	ColumnPair,
@@ -29,7 +29,7 @@ import type {
 	PoolColumnConfig,
 	SearchPoolResponse,
 	SetLevelTitleResponse,
-} from "./types";
+} from "./types.js";
 
 const DEFAULT_CLIENT_ID = "1e739f5e77704b57a703";
 
