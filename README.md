@@ -177,6 +177,9 @@ path rather than a guarantee: it is safe to use for lookups and membership
 checks, where a wrong answer surfaces as "not found", but never derive an ID
 for a destructive call that was not confirmed against the API first.
 
+See [docs/api.md](docs/api.md) for the evidence behind this, the full endpoint
+reference, and the quirks worth knowing before adding new calls.
+
 ## License
 
 MIT

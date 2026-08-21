@@ -104,3 +104,15 @@ bun --hot ./index.ts
 ```
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+
+## Memrise API
+
+`docs/api.md` documents the endpoints this client wraps: the auth flow, the
+object model (course / pool / thing / level / learnable), response shapes, and
+the quirks that are easy to rediscover the hard way — notably that
+`/ajax/pool/search/` answers 500 for an empty filter and cannot list a pool,
+and that a learnable ID packs the thing ID in its high bits.
+
+Read it before adding or changing an endpoint call, and update it when you
+learn something new about the API. Mark anything you have not exercised
+directly as unverified, and date what you did verify.
