@@ -95,7 +95,11 @@ await client.deleteLevel("level-id");
 // Remove a thing from a level
 await client.deleteThingFromLevel("level-id", "thing-id");
 
-// Search pool
+// List every thing in a level, with thing IDs and column values
+const levelThings = await client.getLevelThings("level-id");
+
+// Search pool. At least one non-empty column value is required -- Memrise has
+// no "return everything" mode, use getLevelThings to enumerate instead.
 const results = await client.searchPool("pool-id", {
   "1": "search term",
 });
@@ -128,6 +132,8 @@ new MemriseClient(username: string, password: string, clientId?: string)
 - `getCourseItems(courseId, limit?)` - Get items from a course (optionally limit results)
 - `getLevelItems(courseId, levelIndex, limit?)` - Get items from a specific level (optionally limit results)
 - `getLearnable(learnableId)` - Get a single learnable item
+- `getLevelThings(levelId)` - List every thing in a level with its thing ID, columns and attributes
+- `getLevelEditingHtml(levelId)` - Raw HTML behind `getLevelThings`
 
 **Adding Items:**
 
@@ -143,7 +149,7 @@ new MemriseClient(username: string, password: string, clientId?: string)
 
 **Pool Operations:**
 
-- `searchPool(poolId, columns, excludeThingIds?, originalOnly?)` - Search pool
+- `searchPool(poolId, columns, excludeThingIds?, originalOnly?)` - Search pool. Requires at least one non-empty column value; an empty filter throws (the endpoint answers 500)
 - `getPool(poolId)` - Get pool information
 
 ## License

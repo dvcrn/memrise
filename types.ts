@@ -70,6 +70,18 @@ export interface SearchPoolResponse {
 	result: SearchPoolResultItem[];
 }
 
+export interface LevelThing {
+	id: number;
+	columns: Record<string, string>;
+	attributes: Record<string, string>;
+}
+
+export interface LevelEditingHtmlResponse {
+	success: boolean;
+	rendered: string;
+	[key: string]: unknown;
+}
+
 export interface PoolColumnConfig {
 	kind: string;
 	label: string;

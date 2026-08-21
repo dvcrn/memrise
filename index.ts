@@ -16,6 +16,8 @@ import type {
 	GetLearnableResponse,
 	GetPoolResponse,
 	Learnable,
+	LevelEditingHtmlResponse,
+	LevelThing,
 	PoolColumnConfig,
 	SearchPoolResponse,
 	SetLevelTitleResponse,
@@ -73,6 +75,68 @@ export function formatBulkThingData(
 			return values.join(sep);
 		})
 		.join("\n");
+}
+
+const HTML_ENTITIES: Record<string, string> = {
+	amp: "&",
+	lt: "<",
+	gt: ">",
+	quot: '"',
+	apos: "'",
+	nbsp: "\u00a0",
+	"#39": "'",
+};
+
+function decodeHtml(value: string): string {
+	return value.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, entity) => {
+		const named = HTML_ENTITIES[entity];
+		if (named !== undefined) return named;
+		if (entity.startsWith("#x") || entity.startsWith("#X")) {
+			return String.fromCodePoint(Number.parseInt(entity.slice(2), 16));
+		}
+		if (entity.startsWith("#")) {
+			return String.fromCodePoint(Number.parseInt(entity.slice(1), 10));
+		}
+		return match;
+	});
+}
+
+/**
+ * Extract the things listed in a rendered level editing table.
+ *
+ * Exported so the parsing can be unit tested without hitting the network.
+ */
+export function parseLevelThings(html: string): LevelThing[] {
+	const things: LevelThing[] = [];
+	const rowRe =
+		/<tr[^>]*\bclass="[^"]*\bthing\b[^"]*"[^>]*\bdata-thing-id="(\d+)"[^>]*>([\s\S]*?)<\/tr>/g;
+
+	for (const row of html.matchAll(rowRe)) {
+		const id = Number(row[1]);
+		const body = row[2] ?? "";
+		const columns: Record<string, string> = {};
+		const attributes: Record<string, string> = {};
+
+		const cellRe = /<td([^>]*)>([\s\S]*?)<\/td>/g;
+		for (const cell of body.matchAll(cellRe)) {
+			const attrs = cell[1] ?? "";
+			const content = cell[2] ?? "";
+			const key = /\bdata-key="([^"]+)"/.exec(attrs)?.[1];
+			const kind = /\bdata-cell-type="([^"]+)"/.exec(attrs)?.[1];
+			if (!key || !kind) continue;
+
+			const text = /<div class="text">([\s\S]*?)<\/div>/.exec(content)?.[1];
+			if (text === undefined) continue;
+
+			const value = decodeHtml(text).trim();
+			if (kind === "column") columns[key] = value;
+			else if (kind === "attribute") attributes[key] = value;
+		}
+
+		things.push({ id, columns, attributes });
+	}
+
+	return things;
 }
 
 export class MemriseClient {
@@ -598,6 +662,15 @@ export class MemriseClient {
 		excludeThingIds: string[] = [],
 		originalOnly: boolean = false,
 	): Promise<SearchPoolResponse> {
+		const terms = Object.values(columns).filter(
+			(value) => typeof value === "string" && value.length > 0,
+		);
+		if (terms.length === 0) {
+			throw new Error(
+				"searchPool requires at least one non-empty column value. Memrise's /ajax/pool/search/ endpoint has no 'return everything' mode and responds with HTTP 500 for an empty filter. Use getLevelThings(levelId) to enumerate a level's things instead.",
+			);
+		}
+
 		await this.ensureAuthenticated();
 
 		const params = {
@@ -835,6 +908,34 @@ export class MemriseClient {
 		}
 
 		return items;
+	}
+
+	async getLevelEditingHtml(levelId: string | number): Promise<string> {
+		await this.ensureAuthenticated();
+
+		const response = await this.client.get<LevelEditingHtmlResponse>(
+			"/ajax/level/editing_html/",
+			{
+				params: { level_id: levelId, _: Date.now() },
+			},
+		);
+
+		if (!response.data?.success || typeof response.data.rendered !== "string") {
+			throw new Error(`Could not load editing HTML for level ${levelId}.`);
+		}
+
+		return response.data.rendered;
+	}
+
+	/**
+	 * List every thing currently attached to a level, with its column and
+	 * attribute values. Backed by the level editing page, which is the only
+	 * endpoint that enumerates a level's things -- /ajax/pool/search/ always
+	 * needs a search term.
+	 */
+	async getLevelThings(levelId: string | number): Promise<LevelThing[]> {
+		const html = await this.getLevelEditingHtml(levelId);
+		return parseLevelThings(html);
 	}
 
 	async getCourseColumns(
