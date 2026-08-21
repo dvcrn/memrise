@@ -71,15 +71,14 @@ export interface SearchPoolResponse {
 }
 
 export interface LevelThing {
-	id: number;
-	columns: Record<string, string>;
-	attributes: Record<string, string>;
-}
-
-export interface LevelEditingHtmlResponse {
-	success: boolean;
-	rendered: string;
-	[key: string]: unknown;
+	/** Pool-authoring identity. This is what deleteThingFromLevel needs. */
+	thingId: number;
+	/** Course-facing identity the thing ID was derived from. */
+	learnableId: number;
+	learningElement: string;
+	definitionElement: string;
+	itemType: string;
+	difficulty: string;
 }
 
 export interface PoolColumnConfig {

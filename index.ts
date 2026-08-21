@@ -16,7 +16,6 @@ import type {
 	GetLearnableResponse,
 	GetPoolResponse,
 	Learnable,
-	LevelEditingHtmlResponse,
 	LevelThing,
 	PoolColumnConfig,
 	SearchPoolResponse,
@@ -77,66 +76,23 @@ export function formatBulkThingData(
 		.join("\n");
 }
 
-const HTML_ENTITIES: Record<string, string> = {
-	amp: "&",
-	lt: "<",
-	gt: ">",
-	quot: '"',
-	apos: "'",
-	nbsp: "\u00a0",
-	"#39": "'",
-};
-
-function decodeHtml(value: string): string {
-	return value.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, entity) => {
-		const named = HTML_ENTITIES[entity];
-		if (named !== undefined) return named;
-		if (entity.startsWith("#x") || entity.startsWith("#X")) {
-			return String.fromCodePoint(Number.parseInt(entity.slice(2), 16));
-		}
-		if (entity.startsWith("#")) {
-			return String.fromCodePoint(Number.parseInt(entity.slice(1), 10));
-		}
-		return match;
-	});
-}
+/**
+ * Learnable IDs are derived from the thing they were built from: the thing ID
+ * occupies the high bits and the low 16 bits identify the column pair the
+ * learnable tests (0x0102 = column 1 prompts column 2, and so on). So a thing
+ * ID can be recovered from a learnable ID without another request, while the
+ * reverse needs to know the column pair.
+ */
+const LEARNABLE_THING_SHIFT = 65536;
 
 /**
- * Extract the things listed in a rendered level editing table.
- *
- * Exported so the parsing can be unit tested without hitting the network.
+ * Number of learnable IDs per /v1.25/learnables/ request. 400 ids is still
+ * accepted and 793 answers 414, so this leaves plenty of headroom.
  */
-export function parseLevelThings(html: string): LevelThing[] {
-	const things: LevelThing[] = [];
-	const rowRe =
-		/<tr[^>]*\bclass="[^"]*\bthing\b[^"]*"[^>]*\bdata-thing-id="(\d+)"[^>]*>([\s\S]*?)<\/tr>/g;
+const LEARNABLE_BATCH_SIZE = 200;
 
-	for (const row of html.matchAll(rowRe)) {
-		const id = Number(row[1]);
-		const body = row[2] ?? "";
-		const columns: Record<string, string> = {};
-		const attributes: Record<string, string> = {};
-
-		const cellRe = /<td([^>]*)>([\s\S]*?)<\/td>/g;
-		for (const cell of body.matchAll(cellRe)) {
-			const attrs = cell[1] ?? "";
-			const content = cell[2] ?? "";
-			const key = /\bdata-key="([^"]+)"/.exec(attrs)?.[1];
-			const kind = /\bdata-cell-type="([^"]+)"/.exec(attrs)?.[1];
-			if (!key || !kind) continue;
-
-			const text = /<div class="text">([\s\S]*?)<\/div>/.exec(content)?.[1];
-			if (text === undefined) continue;
-
-			const value = decodeHtml(text).trim();
-			if (kind === "column") columns[key] = value;
-			else if (kind === "attribute") attributes[key] = value;
-		}
-
-		things.push({ id, columns, attributes });
-	}
-
-	return things;
+export function thingIdFromLearnableId(learnableId: number): number {
+	return Math.floor(learnableId / LEARNABLE_THING_SHIFT);
 }
 
 export class MemriseClient {
@@ -846,26 +802,9 @@ export class MemriseClient {
 		const levels = await this.getCourseLevels(courseId);
 		const learnableIds = levels.flatMap((level) => level.learnable_ids || []);
 		const uniqueIds = [...new Set(learnableIds)];
-
-		// Apply limit if specified
 		const idsToFetch = limit ? uniqueIds.slice(0, limit) : uniqueIds;
 
-		// Fetch in batches (concurrently) to avoid overloading but speed up
-		// Since we don't have a batch API, we do parallel requests with a limit
-		const items: Learnable[] = [];
-		const concurrency = 5;
-
-		for (let i = 0; i < idsToFetch.length; i += concurrency) {
-			const batch = idsToFetch.slice(i, i + concurrency);
-			const promises = batch.map((id) => this.getLearnable(id));
-			const results = await Promise.all(promises);
-
-			results.forEach((item) => {
-				if (item) items.push(item);
-			});
-		}
-
-		return items;
+		return this.getLearnables(idsToFetch);
 	}
 
 	async getLevelItems(
@@ -910,32 +849,89 @@ export class MemriseClient {
 		return items;
 	}
 
-	async getLevelEditingHtml(levelId: string | number): Promise<string> {
+	/**
+	 * Fetch several learnables in one round trip.
+	 *
+	 * /v1.25/learnables/ accepts a comma separated list of ids. The URL is
+	 * capped server side (793 ids answers 414), so requests are chunked.
+	 */
+	async getLearnables(
+		learnableIds: Array<string | number>,
+	): Promise<Learnable[]> {
+		if (learnableIds.length === 0) return [];
+
 		await this.ensureAuthenticated();
 
-		const response = await this.client.get<LevelEditingHtmlResponse>(
-			"/ajax/level/editing_html/",
-			{
-				params: { level_id: levelId, _: Date.now() },
-			},
-		);
+		const learnables: Learnable[] = [];
+		for (let i = 0; i < learnableIds.length; i += LEARNABLE_BATCH_SIZE) {
+			const chunk = learnableIds.slice(i, i + LEARNABLE_BATCH_SIZE);
+			const response = await this.client.get<GetLearnableResponse>(
+				`/v1.25/learnables/${chunk.join(",")}/`,
+			);
 
-		if (!response.data?.success || typeof response.data.rendered !== "string") {
-			throw new Error(`Could not load editing HTML for level ${levelId}.`);
+			for (const id of chunk) {
+				const learnable = response.data.learnables?.[String(id)];
+				if (learnable) learnables.push(learnable);
+			}
 		}
 
-		return response.data.rendered;
+		return learnables;
 	}
 
 	/**
-	 * List every thing currently attached to a level, with its column and
-	 * attribute values. Backed by the level editing page, which is the only
-	 * endpoint that enumerates a level's things -- /ajax/pool/search/ always
-	 * needs a search term.
+	 * Look up a single level on a course.
 	 */
-	async getLevelThings(levelId: string | number): Promise<LevelThing[]> {
-		const html = await this.getLevelEditingHtml(levelId);
-		return parseLevelThings(html);
+	async getLevel(
+		courseId: string | number,
+		levelId: string | number,
+	): Promise<CourseLevel> {
+		const levels = await this.getCourseLevels(courseId);
+		const level = levels.find((l) => String(l.id) === String(levelId));
+		if (!level) {
+			throw new Error(`Level ${levelId} is not part of course ${courseId}.`);
+		}
+		return level;
+	}
+
+	/**
+	 * List the thing IDs currently attached to a level, in level order.
+	 *
+	 * A level only reports learnable IDs, but a learnable ID embeds the thing
+	 * it was built from, so no extra request is needed. See
+	 * {@link thingIdFromLearnableId}.
+	 */
+	async getLevelThingIds(
+		courseId: string | number,
+		levelId: string | number,
+	): Promise<number[]> {
+		const level = await this.getLevel(courseId, levelId);
+		return (level.learnable_ids ?? []).map(thingIdFromLearnableId);
+	}
+
+	/**
+	 * List the things attached to a level, with the thing ID needed for
+	 * deletion alongside the learnable's text.
+	 */
+	async getLevelThings(
+		courseId: string | number,
+		levelId: string | number,
+	): Promise<LevelThing[]> {
+		const level = await this.getLevel(courseId, levelId);
+		const learnableIds = level.learnable_ids ?? [];
+		const learnables = await this.getLearnables(learnableIds);
+		const byId = new Map(learnables.map((l) => [String(l.id), l]));
+
+		return learnableIds.map((learnableId) => {
+			const learnable = byId.get(String(learnableId));
+			return {
+				thingId: thingIdFromLearnableId(learnableId),
+				learnableId,
+				learningElement: learnable?.learning_element ?? "",
+				definitionElement: learnable?.definition_element ?? "",
+				itemType: learnable?.item_type ?? "",
+				difficulty: learnable?.difficulty ?? "",
+			};
+		});
 	}
 
 	async getCourseColumns(

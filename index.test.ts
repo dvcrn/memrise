@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
 	formatBulkThingData,
 	MemriseClient,
-	parseLevelThings,
+	thingIdFromLearnableId,
 } from "./index";
 
 test("MemriseClient instantiation", () => {
@@ -58,35 +58,6 @@ test("formatBulkThingData rejects values that contain the delimiter", () => {
 	);
 });
 
-const LEVEL_HTML = `<table><tbody class="things"><tr class="thing" data-thing-id="504696237"><td><i class="ico ico-close" data-role="remove"></i></td><td class="cell text column"
-	data-key="1"
-	data-cell-type="column"><div class="wrapper"><button class="edit-alts">Alts</button><div class="text">&#3605;&#3638;&#3585; (tuk)</div></div></td><td class="cell text column"
-	data-key="2"
-	data-cell-type="column"><div class="wrapper"><div class="text">building &amp; hall</div></div></td><td class="cell audio column"
-	data-key="3"
-	data-cell-type="column"><div class="btn-group">no audio file</div></td><td class="cell text attribute"
-	data-key="1"
-	data-cell-type="attribute"><div class="wrapper"><div class="text">tʉ̀k</div></div></td></tr><tr class="thing" data-thing-id="504696238"><td class="cell text column"
-	data-key="1"
-	data-cell-type="column"><div class="wrapper"><div class="text">maybe</div></div></td></tr></tbody></table>`;
-
-test("parseLevelThings extracts thing ids, columns and attributes", () => {
-	const things = parseLevelThings(LEVEL_HTML);
-
-	expect(things).toHaveLength(2);
-	expect(things[0]).toEqual({
-		id: 504696237,
-		columns: { "1": "ตึก (tuk)", "2": "building & hall" },
-		attributes: { "1": "tʉ̀k" },
-	});
-	expect(things[1]?.id).toBe(504696238);
-	expect(things[1]?.columns).toEqual({ "1": "maybe" });
-});
-
-test("parseLevelThings returns an empty list for a level with no things", () => {
-	expect(parseLevelThings('<tbody class="things"></tbody>')).toEqual([]);
-});
-
 test("searchPool rejects an empty column filter instead of hitting the API", async () => {
 	const client = new MemriseClient("csrftoken=testtoken; sessionid=123");
 	expect(client.searchPool(1, {})).rejects.toThrow(
@@ -95,4 +66,44 @@ test("searchPool rejects an empty column filter instead of hitting the API", asy
 	expect(client.searchPool(1, { "1": "" })).rejects.toThrow(
 		/at least one non-empty column value/,
 	);
+});
+
+// Recorded from live courses. A learnable ID packs the thing it was built from
+// into the high bits and the column pair it tests into the low 16.
+const LEARNABLE_TO_THING: Array<[number, number, number]> = [
+	// [learnableId, thingId, columnPair]
+	[33075772588290, 504696237, 0x0102],
+	[33075772653826, 504696238, 0x0102],
+	[33075772719362, 504696239, 0x0102],
+	[31330446672130, 478064677, 0x0102],
+	[32690739282178, 498821095, 0x0102],
+];
+
+test("thingIdFromLearnableId recovers the thing ID", () => {
+	for (const [learnableId, thingId] of LEARNABLE_TO_THING) {
+		expect(thingIdFromLearnableId(learnableId)).toBe(thingId);
+	}
+});
+
+test("consecutive things step the learnable ID by one column-pair block", () => {
+	expect(33075772653826 - 33075772588290).toBe(65536);
+	expect(thingIdFromLearnableId(33075772653826)).toBe(
+		thingIdFromLearnableId(33075772588290) + 1,
+	);
+});
+
+test("the low bits are the column pair, not part of the thing ID", () => {
+	for (const [learnableId, , pair] of LEARNABLE_TO_THING) {
+		expect(learnableId % 65536).toBe(pair);
+	}
+	// Same thing, different column pairing -> different learnable, same thing ID.
+	const thing = 504696237;
+	expect(thingIdFromLearnableId(thing * 65536 + 0x0102)).toBe(thing);
+	expect(thingIdFromLearnableId(thing * 65536 + 0x0302)).toBe(thing);
+});
+
+test("thing IDs stay inside the safe integer range", () => {
+	for (const [learnableId] of LEARNABLE_TO_THING) {
+		expect(Number.isSafeInteger(learnableId)).toBe(true);
+	}
 });

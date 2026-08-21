@@ -95,8 +95,11 @@ await client.deleteLevel("level-id");
 // Remove a thing from a level
 await client.deleteThingFromLevel("level-id", "thing-id");
 
-// List every thing in a level, with thing IDs and column values
-const levelThings = await client.getLevelThings("level-id");
+// List every thing in a level, with the thing IDs deleteThingFromLevel needs
+const levelThings = await client.getLevelThings("course-id", "level-id");
+
+// Or just the thing IDs, with no extra request for the text
+const thingIds = await client.getLevelThingIds("course-id", "level-id");
 
 // Search pool. At least one non-empty column value is required -- Memrise has
 // no "return everything" mode, use getLevelThings to enumerate instead.
@@ -132,8 +135,10 @@ new MemriseClient(username: string, password: string, clientId?: string)
 - `getCourseItems(courseId, limit?)` - Get items from a course (optionally limit results)
 - `getLevelItems(courseId, levelIndex, limit?)` - Get items from a specific level (optionally limit results)
 - `getLearnable(learnableId)` - Get a single learnable item
-- `getLevelThings(levelId)` - List every thing in a level with its thing ID, columns and attributes
-- `getLevelEditingHtml(levelId)` - Raw HTML behind `getLevelThings`
+- `getLearnables(learnableIds)` - Fetch many learnables in one batched request
+- `getLevel(courseId, levelId)` - Look up a single level
+- `getLevelThingIds(courseId, levelId)` - Thing IDs attached to a level, in level order
+- `getLevelThings(courseId, levelId)` - Things in a level, each with its thing ID and the learnable text
 
 **Adding Items:**
 
@@ -151,6 +156,26 @@ new MemriseClient(username: string, password: string, clientId?: string)
 
 - `searchPool(poolId, columns, excludeThingIds?, originalOnly?)` - Search pool. Requires at least one non-empty column value; an empty filter throws (the endpoint answers 500)
 - `getPool(poolId)` - Get pool information
+
+## Thing IDs and learnable IDs
+
+Memrise exposes two identifiers for what looks like the same item:
+
+- **thing** — the row in the pool database. `deleteThingFromLevel`,
+  `searchPool` and the `addThing*` responses all speak thing IDs.
+- **learnable** — a thing *plus* the pair of columns being tested. Levels and
+  the course-facing APIs report learnable IDs.
+
+A learnable ID packs both together: the thing ID sits in the high bits and the
+low 16 bits hold the column pair, so `0x...0102` means "column 1 prompts
+column 2". `thingIdFromLearnableId(learnableId)` recovers the thing ID without
+another request, which is how `getLevelThingIds` works. The reverse direction
+is not derivable, since it needs the column pair.
+
+This packing is an undocumented implementation detail, so treat it as a fast
+path rather than a guarantee: it is safe to use for lookups and membership
+checks, where a wrong answer surfaces as "not found", but never derive an ID
+for a destructive call that was not confirmed against the API first.
 
 ## License
 
