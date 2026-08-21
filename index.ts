@@ -61,22 +61,45 @@ function orderedValuesFromRecord(row: Record<string, string>): string[] {
 	return values;
 }
 
+/**
+ * Choose a delimiter that appears in none of the values.
+ *
+ * Bulk adds are serialised as delimiter-separated text, so a definition
+ * containing the delimiter would silently misalign the columns. Commas are
+ * common in definitions, tabs and semicolons much less so.
+ */
+export function pickBulkDelimiter(rows: BulkThingRow[]): BulkWordDelimiter {
+	const values = rows.flatMap((row) =>
+		Array.isArray(row) ? row : orderedValuesFromRecord(row),
+	);
+
+	for (const candidate of ["comma", "tab", "semicolon"] as const) {
+		const sep = BULK_DELIMITER_CHARS[candidate];
+		if (!values.some((value) => value.includes(sep))) return candidate;
+	}
+
+	throw new Error(
+		"Every supported delimiter (comma, tab, semicolon) appears in the values being added, so the rows cannot be encoded unambiguously. Split the batch or remove the punctuation.",
+	);
+}
+
 export function formatBulkThingData(
 	rows: BulkThingRows,
-	delimiter: BulkWordDelimiter = "comma",
+	delimiter?: BulkWordDelimiter,
 ): string {
 	if (typeof rows === "string") {
 		return rows;
 	}
 
-	const sep = BULK_DELIMITER_CHARS[delimiter];
+	const chosen = delimiter ?? pickBulkDelimiter(rows);
+	const sep = BULK_DELIMITER_CHARS[chosen];
 	return rows
 		.map((row) => {
 			const values = Array.isArray(row) ? row : orderedValuesFromRecord(row);
 			for (const value of values) {
 				if (value.includes(sep) || /[\r\n]/.test(value)) {
 					throw new Error(
-						`Bulk row value contains the '${delimiter}' delimiter or a newline: ${JSON.stringify(value)}`,
+						`Bulk row value contains the '${chosen}' delimiter or a newline: ${JSON.stringify(value)}`,
 					);
 				}
 			}
@@ -597,20 +620,23 @@ export class MemriseClient {
 	async bulkAddToPool(
 		poolId: string | number,
 		rows: BulkThingRows,
-		delimiter: BulkWordDelimiter = "comma",
+		delimiter?: BulkWordDelimiter,
 	): Promise<BulkAddResponse> {
 		await this.ensureAuthenticated();
 
-		const payload = formatBulkThingData(
-			await this.resolveRowsForPool(poolId, rows),
-			delimiter,
-		);
+		const resolvedRows = await this.resolveRowsForPool(poolId, rows);
+		const chosenDelimiter =
+			delimiter ??
+			(typeof resolvedRows === "string"
+				? "comma"
+				: pickBulkDelimiter(resolvedRows));
+		const payload = formatBulkThingData(resolvedRows, chosenDelimiter);
 		if (payload.trim() === "") {
 			throw new Error("No rows provided for bulk add");
 		}
 
 		const data = new URLSearchParams();
-		data.append("word_delimiter", delimiter);
+		data.append("word_delimiter", chosenDelimiter);
 		data.append("data", payload);
 		data.append("pool_id", String(poolId));
 
@@ -630,20 +656,23 @@ export class MemriseClient {
 	async bulkAddToLevel(
 		levelId: string | number,
 		rows: BulkThingRows,
-		delimiter: BulkWordDelimiter = "comma",
+		delimiter?: BulkWordDelimiter,
 	): Promise<BulkAddResponse> {
 		await this.ensureAuthenticated();
 
-		const payload = formatBulkThingData(
-			await this.resolveRowsForLevel(levelId, rows),
-			delimiter,
-		);
+		const resolvedRows = await this.resolveRowsForLevel(levelId, rows);
+		const chosenDelimiter =
+			delimiter ??
+			(typeof resolvedRows === "string"
+				? "comma"
+				: pickBulkDelimiter(resolvedRows));
+		const payload = formatBulkThingData(resolvedRows, chosenDelimiter);
 		if (payload.trim() === "") {
 			throw new Error("No rows provided for bulk add");
 		}
 
 		const data = new URLSearchParams();
-		data.append("word_delimiter", delimiter);
+		data.append("word_delimiter", chosenDelimiter);
 		data.append("data", payload);
 		data.append("level_id", String(levelId));
 
@@ -667,7 +696,7 @@ export class MemriseClient {
 		courseId: string | number,
 		rows: BulkThingRows,
 		levelNumber: number = 1,
-		delimiter: BulkWordDelimiter = "comma",
+		delimiter?: BulkWordDelimiter,
 	): Promise<BulkAddResponse> {
 		const level = await this.getLevelByNumber(courseId, levelNumber);
 		return this.bulkAddToLevel(level.id, rows, delimiter);
