@@ -123,7 +123,8 @@ new MemriseClient(username: string, password: string, clientId?: string)
 
 **Course Management:**
 
-- `getMyCourses(limit?, offset?)` - Get your courses
+- `getAllMyCourses(limit?)` - Every course on your dashboard, following pagination
+- `getMyCourses(limit?, offset?)` - One raw page of courses (the API caps `limit` at 9)
 - `getCourseById(courseId)` - Get course by ID
 - `getCourseBySlug(slug)` - Get course by slug
 - `getCourseLevels(courseId)` - Get levels for a course

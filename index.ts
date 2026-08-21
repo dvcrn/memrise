@@ -123,6 +123,9 @@ const LEARNABLE_THING_SHIFT = 65536;
  */
 const LEARNABLE_BATCH_SIZE = 200;
 
+/** /v1.25/dashboard/courses/ rejects a limit above this with a 400. */
+const DASHBOARD_MAX_PAGE_SIZE = 9;
+
 /**
  * Recover the thing ID a learnable was built from.
  *
@@ -775,36 +778,39 @@ export class MemriseClient {
 		return response.data;
 	}
 
+	/**
+	 * Every course on your dashboard, following pagination.
+	 *
+	 * getMyCourses exposes the API's own page size, which silently truncates
+	 * at nine. This walks the pages so callers see the whole list.
+	 */
+	async getAllMyCourses(limit?: number): Promise<DashboardCourse[]> {
+		const courses: DashboardCourse[] = [];
+		// The dashboard endpoint answers 400 for a limit above 9.
+		const pageSize = DASHBOARD_MAX_PAGE_SIZE;
+		let offset = 0;
+
+		while (true) {
+			const page = await this.getMyCourses(pageSize, offset);
+			courses.push(...page.courses);
+			if (limit && courses.length >= limit) return courses.slice(0, limit);
+			if (!page.has_more_pages || page.courses.length === 0) break;
+			offset += pageSize;
+		}
+
+		return courses;
+	}
+
 	async getCourseById(
 		courseId: string | number,
 	): Promise<DashboardCourse | null> {
-		let offset = 0;
-		const limit = 9;
-
-		while (true) {
-			const response = await this.getMyCourses(limit, offset);
-			const course = response.courses.find(
-				(c) => String(c.id) === String(courseId),
-			);
-			if (course) return course;
-
-			if (!response.has_more_pages) return null;
-			offset += limit;
-		}
+		const courses = await this.getAllMyCourses();
+		return courses.find((c) => String(c.id) === String(courseId)) ?? null;
 	}
 
 	async getCourseBySlug(slug: string): Promise<DashboardCourse | null> {
-		let offset = 0;
-		const limit = 9;
-
-		while (true) {
-			const response = await this.getMyCourses(limit, offset);
-			const course = response.courses.find((c) => c.slug === slug);
-			if (course) return course;
-
-			if (!response.has_more_pages) return null;
-			offset += limit;
-		}
+		const courses = await this.getAllMyCourses();
+		return courses.find((c) => c.slug === slug) ?? null;
 	}
 
 	async getCourseLevels(

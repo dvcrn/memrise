@@ -183,6 +183,11 @@ token. Setting an `authorization` header globally is unnecessary.
 
 Params: `filter` (`teaching`), `limit`, `offset`.
 
+**`limit` above 9 answers 400** (verified: 9 succeeds, 10 does not), so the
+whole dashboard has to be walked a page at a time. `getAllMyCourses()` does
+that; `getMyCourses()` exposes the raw single page and will silently look
+complete when it is not.
+
 ```jsonc
 { "applied_filter": …, "categories": [...], "has_more_pages": false,
   "courses": [ { "id", "name", "slug", "is_official", "photo_url",
@@ -395,6 +400,12 @@ former.
   remove on the very next request; no cache delay was observed, which is what
   makes it usable for verifying a mutation.
 - **Batch learnable URLs 414** past roughly 400 IDs.
+- **Bulk adds are delimiter-separated text**, so a value containing the
+  delimiter corrupts every column after it. Commas are common in definitions,
+  which made the obvious default the dangerous one. `pickBulkDelimiter()`
+  chooses comma, tab or semicolon based on the data.
+- **Adding a word that already exists in the pool reuses the existing row**
+  rather than creating a duplicate, and returns that row's thing ID.
 - **A thing can outlive its levels.** Removing it from every level leaves the
   row in the pool, where only the database pages will show it.
 

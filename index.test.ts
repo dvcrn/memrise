@@ -10,17 +10,16 @@ import {
 	thingIdFromLearnableId,
 } from "./index";
 
-test("MemriseClient instantiation", () => {
-	const cookie = "csrftoken=testtoken; sessionid=123";
-	const client = new MemriseClient(cookie);
-	expect(client).toBeDefined();
-});
+test("MemriseClient constructs and defers authentication", () => {
+	const client = new MemriseClient("user@example.com", "not-a-real-password");
+	// Authentication starts in the constructor. Nothing here should await it,
+	// so swallow the rejection these fake credentials will produce.
+	// @ts-ignore - reaching for a private field to keep the test offline
+	client.authReady?.catch(() => {});
 
-test("MemriseClient extractCsrfToken", () => {
-	const cookie = "csrftoken=testtoken; sessionid=123";
-	const client = new MemriseClient(cookie);
-	// @ts-ignore - accessing private property for testing
-	expect(client.csrfToken).toBe("testtoken");
+	expect(client).toBeDefined();
+	// @ts-ignore - private
+	expect(client.csrfToken).toBeNull();
 });
 
 test("formatBulkThingData passes through a raw string", () => {
