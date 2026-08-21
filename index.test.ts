@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
 	assertThingId,
+	pickBulkDelimiter,
 	asThingId,
 	columnPairFromLearnableId,
 	formatBulkThingData,
@@ -53,12 +54,23 @@ test("formatBulkThingData supports tab and semicolon delimiters", () => {
 	expect(formatBulkThingData([["foo", "bar"]], "semicolon")).toBe("foo;bar");
 });
 
-test("formatBulkThingData rejects values that contain the delimiter", () => {
-	expect(() => formatBulkThingData([["foo,bar", "baz"]])).toThrow(
-		"delimiter or a newline",
+test("formatBulkThingData avoids a delimiter that occurs in the values", () => {
+	// A comma in a definition used to corrupt the row; tab is picked instead.
+	expect(formatBulkThingData([["foo,bar", "baz"]])).toBe("foo,bar\tbaz");
+	expect(pickBulkDelimiter([["foo,bar", "baz"]])).toBe("tab");
+	expect(pickBulkDelimiter([["plain", "values"]])).toBe("comma");
+	expect(pickBulkDelimiter([["a,b", "c\td"]])).toBe("semicolon");
+});
+
+test("formatBulkThingData still rejects a delimiter given explicitly", () => {
+	expect(() => formatBulkThingData([["foo,bar", "baz"]], "comma")).toThrow(
+		/delimiter or a newline/,
 	);
-	expect(() => formatBulkThingData([["foo\nbar", "baz"]])).toThrow(
-		"delimiter or a newline",
+});
+
+test("pickBulkDelimiter refuses when every delimiter collides", () => {
+	expect(() => pickBulkDelimiter([["a,b", "c\td", "e;f"]])).toThrow(
+		/cannot be encoded unambiguously/,
 	);
 });
 
