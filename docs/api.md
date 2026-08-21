@@ -406,6 +406,12 @@ former.
   chooses comma, tab or semicolon based on the data.
 - **Adding a word that already exists in the pool reuses the existing row**
   rather than creating a duplicate, and returns that row's thing ID.
+- **Rate limiting is account-wide and unforgiving.** Sustained traffic earns
+  `429 {"error": "Too Many Requests"}` on *every* endpoint at once, `/v1.25/`
+  and `/ajax/` alike, and it persists well past 25 minutes. There is no
+  `Retry-After` header to read. This client does not retry or back off, so a
+  429 surfaces as a bare `Request failed with status code 429`; batch work
+  should pace itself rather than discover the limit.
 - **A thing can outlive its levels.** Removing it from every level leaves the
   row in the pool, where only the database pages will show it.
 
