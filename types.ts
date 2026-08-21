@@ -66,6 +66,9 @@ export interface BulkAddResponse {
 
 export interface AddLevelResponse {
 	success: boolean;
+	/** ID of the level just created, recovered from the redirect URL. */
+	levelId?: number;
+	redirect_url?: string;
 	level?: CourseLevel;
 	rendered_level?: string;
 	[key: string]: unknown;

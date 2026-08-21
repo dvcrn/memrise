@@ -500,6 +500,19 @@ export class MemriseClient {
 			},
 		);
 
+		// The endpoint reports the new level only as an anchor on the redirect
+		// URL, e.g. "/course/1/slug/edit/#l_16402418".
+		const levelId = Number(
+			/#l_(\d+)/.exec(response.data?.redirect_url ?? "")?.[1],
+		);
+
+		if (Number.isFinite(levelId)) {
+			// A new level is empty, so the levels endpoint will not report it
+			// yet. Remember its pool so column names still resolve.
+			this.poolIdByLevel.set(String(levelId), Number(resolvedPoolId));
+			return { ...response.data, levelId };
+		}
+
 		return response.data;
 	}
 
@@ -666,7 +679,8 @@ export class MemriseClient {
 		excludeThingIds: string[] = [],
 		originalOnly: boolean = false,
 	): Promise<SearchPoolResponse> {
-		const terms = Object.values(columns).filter(
+		const resolvedColumns = await this.resolveColumnKeys(poolId, columns);
+		const terms = Object.values(resolvedColumns).filter(
 			(value) => typeof value === "string" && value.length > 0,
 		);
 		if (terms.length === 0) {
@@ -680,7 +694,7 @@ export class MemriseClient {
 		const params = {
 			pool_id: poolId,
 			original_only: originalOnly,
-			columns: JSON.stringify(columns),
+			columns: JSON.stringify(resolvedColumns),
 			exclude_thing_ids: JSON.stringify(excludeThingIds),
 			_: Date.now(),
 		};
@@ -773,6 +787,10 @@ export class MemriseClient {
 		const response = await this.client.get<{ levels: CourseLevel[] }>(
 			`/v1.25/courses/${courseId}/levels/`,
 		);
+
+		for (const level of response.data.levels) {
+			this.poolIdByLevel.set(String(level.id), level.pool_id);
+		}
 
 		return response.data.levels;
 	}
@@ -1012,32 +1030,28 @@ export class MemriseClient {
 	/**
 	 * The pool behind a level, without needing the course ID.
 	 *
-	 * The levels JSON is course-scoped, so this reads the pool ID off the
-	 * level editor instead. Only a single attribute is extracted, and the
-	 * result is cached for the life of the client.
+	 * The levels endpoint is course-scoped, so this consults a cache that every
+	 * getCourseLevels call populates, and falls back to sweeping the courses on
+	 * your dashboard. All JSON -- no page scraping.
+	 *
+	 * A level with no items is invisible to that endpoint. Levels created
+	 * through addLevelToCourse are cached at creation, but for anything else,
+	 * pass numeric column keys or use a course-scoped call.
 	 */
 	async getPoolIdForLevelId(levelId: string | number): Promise<number> {
 		const key = String(levelId);
 		const cached = this.poolIdByLevel.get(key);
 		if (cached !== undefined) return cached;
 
-		await this.ensureAuthenticated();
-		const response = await this.client.get<{
-			success: boolean;
-			rendered: string;
-		}>("/ajax/level/editing_html/", {
-			params: { level_id: levelId, _: Date.now() },
-		});
-
-		const poolId = Number(
-			/data-pool-id="(\d+)"/.exec(response.data?.rendered ?? "")?.[1],
-		);
-		if (!Number.isFinite(poolId)) {
-			throw new Error(`Could not determine the pool behind level ${levelId}.`);
+		for (const course of (await this.getMyCourses(100, 0)).courses) {
+			await this.getCourseLevels(course.id);
+			const found = this.poolIdByLevel.get(key);
+			if (found !== undefined) return found;
 		}
 
-		this.poolIdByLevel.set(key, poolId);
-		return poolId;
+		throw new Error(
+			`Could not find level ${levelId} on any course on your dashboard, so its columns cannot be resolved by name. Empty levels are not listed by the API. Pass numeric column keys instead, or add via the course-scoped call.`,
+		);
 	}
 
 	private async columnKeysFor(
