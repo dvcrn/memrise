@@ -16,6 +16,10 @@ import { MemriseClient } from "memrise";
 // Initialize with username and password
 const client = new MemriseClient("username", "password");
 
+// Get the signed-in account
+const me = await client.getMe();
+console.log(me.username, me.is_pro);
+
 // Get your courses
 const courses = await client.getMyCourses();
 console.log(courses);
@@ -131,6 +135,10 @@ new MemriseClient(username: string, password: string, clientId?: string)
 ```
 
 ### Methods
+
+**Account:**
+
+- `getMe()` - The signed-in account: id, username, email, locale, Pro status and lifetime statistics
 
 **Course Management:**
 

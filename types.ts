@@ -269,3 +269,51 @@ export interface AuthWebResponse {
 	success?: boolean;
 	[key: string]: unknown;
 }
+
+export interface ProfileSubscription {
+	expiry: string;
+	is_active: boolean;
+	is_on_hold: boolean;
+	subscription_type: number;
+}
+
+export interface ProfileAvatar {
+	normal: string;
+	small: string;
+	large: string;
+}
+
+export interface ProfileStatistics {
+	points: number;
+	longest_streak: number;
+	num_things_flowered: number;
+}
+
+/**
+ * The signed-in account. Fields below were observed on a live response; the
+ * index signature covers the rest, since this payload carries whichever
+ * subscription and entitlement flags the web client happens to need.
+ */
+export interface Profile {
+	id: number;
+	username: string;
+	email: string;
+	date_joined: string;
+	language: string;
+	timezone: string;
+	is_staff: boolean;
+	is_pro: boolean;
+	is_guest: boolean;
+	has_facebook: boolean;
+	has_password_set: boolean;
+	has_lapsed_pro: boolean;
+	pro_trial_ended: string | null;
+	subscription: ProfileSubscription;
+	avatar: ProfileAvatar;
+	statistics: ProfileStatistics;
+	[key: string]: unknown;
+}
+
+export interface GetMeResponse {
+	profile: Profile;
+}

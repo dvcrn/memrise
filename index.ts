@@ -22,12 +22,14 @@ import type {
 	DeleteThingResponse,
 	EnsureCsrfResponse,
 	GetDashboardCoursesResponse,
+	GetMeResponse,
 	GetThingResponse,
 	GetLearnableResponse,
 	GetPoolResponse,
 	Learnable,
 	LevelThing,
 	PoolColumnConfig,
+	Profile,
 	SearchPoolResponse,
 	SetLevelTitleResponse,
 	ThingCellType,
@@ -914,6 +916,20 @@ export class MemriseClient {
 		});
 
 		return response.data;
+	}
+
+	/**
+	 * The signed-in account, as `/v1.25/me/` reports it.
+	 *
+	 * The wrapping `profile` key is dropped, since the response carries
+	 * nothing else.
+	 */
+	async getMe(): Promise<Profile> {
+		await this.ensureAuthenticated();
+
+		const response = await this.client.get<GetMeResponse>("/v1.25/me/");
+
+		return response.data.profile;
 	}
 
 	async getMyCourses(

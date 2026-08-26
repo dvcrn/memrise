@@ -179,6 +179,36 @@ token. Setting an `authorization` header globally is unnecessary.
 
 ## JSON API (`/v1.25/`)
 
+### `GET /v1.25/me/`
+
+No params. Answers for whoever the session cookie belongs to.
+
+```jsonc
+{ "profile": {
+    "id": 8046313, "username": "…", "email": "…@example.com",
+    "date_joined": "2015-05-14T10:04:53Z", "language": "en",
+    "timezone": "Asia/Tokyo", "is_staff": false, "is_pro": true,
+    "is_guest": false, "has_facebook": true, "has_password_set": true,
+    "has_lapsed_pro": false, "pro_trial_ended": null,
+    "subscription": { "expiry", "is_active", "is_on_hold",
+                      "subscription_type" },
+    "avatar": { "normal", "small", "large" },
+    "statistics": { "points", "longest_streak", "num_things_flowered" },
+    "business_model": { "value": "mode-locked-legacy" } } }
+```
+
+**Verified** (2026-08-26). Everything sits under a single `profile` key, which
+`getMe()` unwraps.
+
+Two fields read backwards from their names. `subscription.is_active` was
+`false` on a **Pro** account whose `expiry` is `9999-12-31T23:59:59Z` — the
+subscription block describes a recurring billing subscription, not
+entitlement, so read `is_pro` for that. And `business_model.value` is a
+free-form string (`"mode-locked-legacy"` here), so it is left untyped.
+
+This is the only account-level endpoint this client exercises; the editor's
+`/ajax/user/get/` is still untested.
+
 ### `GET /v1.25/dashboard/courses/`
 
 Params: `filter` (`teaching`), `limit`, `offset`.
