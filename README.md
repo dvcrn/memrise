@@ -92,6 +92,17 @@ await client.setLevelTitle("level-id", "02/19");
 // Delete a level
 await client.deleteLevel("level-id");
 
+// Edit an existing item. Columns may be named or numeric; the write is read
+// back afterwards, because the endpoint reports success either way.
+await client.updateThing("thing-id", { Definition: "corrected" });
+
+// Or one cell at a time, matching the endpoint exactly
+await client.updateThingCell("thing-id", "2", "corrected");
+await client.updateThingCell("thing-id", "Pronunciation", "kon-ni-chi-wa", "attribute");
+
+// Read a single row, every column, by thing ID
+const { thing } = await client.getThing("thing-id");
+
 // Remove a thing from a level
 await client.deleteThingFromLevel("level-id", "thing-id");
 
@@ -155,6 +166,12 @@ new MemriseClient(username: string, password: string, clientId?: string)
 - `setLevelTitle(levelId, newTitle)` - Rename a level
 - `deleteLevel(levelId)` - Delete a level
 - `deleteThingFromLevel(levelId, thingId)` - Remove a thing from a level
+
+**Editing Items:**
+
+- `getThing(thingId)` - Read one pool row, every column and attribute
+- `updateThing(thingId, columns, cellType?)` - Overwrite several cells of one thing, then verify the write stuck
+- `updateThingCell(thingId, cell, newValue, cellType?)` - Overwrite one cell. `cellType` is `"column"` (default) or `"attribute"`
 
 **Pool Operations:**
 

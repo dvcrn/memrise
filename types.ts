@@ -84,6 +84,27 @@ export interface DeleteLevelResponse {
 	[key: string]: unknown;
 }
 
+/** Which family of cell `/ajax/thing/cell/update/` should write to. */
+export type ThingCellType = "column" | "attribute";
+
+export interface UpdateThingCellResponse {
+	/** Always `null` in practice -- the endpoint reports nothing useful. */
+	success: boolean | null;
+	[key: string]: unknown;
+}
+
+export interface UpdateThingResponse {
+	success: boolean;
+	thingId: ThingId;
+	/** Cells written, in the order they were sent, keyed numerically. */
+	updated: Record<string, string>;
+}
+
+export interface GetThingResponse {
+	thing: MemriseThing;
+	[key: string]: unknown;
+}
+
 export interface DeleteThingResponse {
 	success: boolean;
 	[key: string]: unknown;

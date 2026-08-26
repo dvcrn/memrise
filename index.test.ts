@@ -10,6 +10,14 @@ import {
 	thingIdFromLearnableId,
 } from "./index";
 
+/** A client that never authenticates, for tests that must not reach the API. */
+function offlineClient(): MemriseClient {
+	const client = new MemriseClient("user@example.com", "not-a-real-password");
+	// @ts-ignore - reaching for a private field to keep the test offline
+	client.authReady?.catch(() => {});
+	return client;
+}
+
 test("MemriseClient constructs and defers authentication", () => {
 	const client = new MemriseClient("user@example.com", "not-a-real-password");
 	// Authentication starts in the constructor. Nothing here should await it,
@@ -159,6 +167,31 @@ test("the same thing under two pairings gives two learnable IDs", () => {
 	expect(a).not.toBe(b);
 	expect(thingIdFromLearnableId(a)).toBe(thingId);
 	expect(thingIdFromLearnableId(b)).toBe(thingId);
+});
+
+test("updateThing rejects an empty column set before hitting the API", async () => {
+	const client = offlineClient();
+
+	expect(client.updateThing(504696237, {})).rejects.toThrow(
+		"at least one column",
+	);
+	expect(client.updateThing(504696237, {}, "attribute")).rejects.toThrow(
+		"at least one attribute",
+	);
+});
+
+test("the cell edit calls reject a learnable ID", async () => {
+	const client = offlineClient();
+
+	expect(client.getThing(33075772588290)).rejects.toThrow(
+		"getThing needs a thingId",
+	);
+	expect(client.updateThingCell(33075772588290, 2, "x")).rejects.toThrow(
+		"updateThingCell needs a thingId",
+	);
+	expect(client.updateThing(33075772588290, { "2": "x" })).rejects.toThrow(
+		"updateThing needs a thingId",
+	);
 });
 
 test("assertThingId accepts a thing ID unchanged", () => {

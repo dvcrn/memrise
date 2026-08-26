@@ -22,6 +22,7 @@ import type {
 	DeleteThingResponse,
 	EnsureCsrfResponse,
 	GetDashboardCoursesResponse,
+	GetThingResponse,
 	GetLearnableResponse,
 	GetPoolResponse,
 	Learnable,
@@ -29,6 +30,9 @@ import type {
 	PoolColumnConfig,
 	SearchPoolResponse,
 	SetLevelTitleResponse,
+	ThingCellType,
+	UpdateThingCellResponse,
+	UpdateThingResponse,
 } from "./types.js";
 
 const DEFAULT_CLIENT_ID = "1e739f5e77704b57a703";
@@ -206,6 +210,8 @@ export class MemriseClient {
 	private authReady: Promise<void>;
 	private poolIdByLevel = new Map<string, number>();
 	private columnKeysByPool = new Map<string, Map<string, string>>();
+	private attributeKeysByPool = new Map<string, Map<string, string>>();
+	private poolIdByThing = new Map<string, number>();
 
 	constructor(
 		username: string,
@@ -582,6 +588,160 @@ export class MemriseClient {
 		);
 
 		return response.data;
+	}
+
+	/** Fetch one pool row by its thing ID. */
+	async getThing(thingId: string | number): Promise<GetThingResponse> {
+		assertThingId(Number(thingId), "getThing");
+		await this.ensureAuthenticated();
+
+		const response = await this.client.get<GetThingResponse>(
+			"/ajax/thing/get/",
+			{ params: { thing_id: thingId } },
+		);
+
+		const poolId = response.data?.thing?.pool_id;
+		if (poolId != null) {
+			this.poolIdByThing.set(String(thingId), poolId);
+		}
+
+		return response.data;
+	}
+
+	/**
+	 * Overwrite one cell of an existing thing.
+	 *
+	 * `cell` may be a column (or attribute) label or the numeric key Memrise
+	 * uses on the wire. A label costs one extra request the first time, to
+	 * learn which pool the thing lives in.
+	 */
+	async updateThingCell(
+		thingId: string | number,
+		cell: string | number,
+		newValue: string,
+		cellType: ThingCellType = "column",
+	): Promise<UpdateThingCellResponse> {
+		assertThingId(Number(thingId), "updateThingCell");
+		await this.ensureAuthenticated();
+
+		const cellId = await this.resolveCellId(thingId, cell, cellType);
+
+		const data = new URLSearchParams();
+		data.append("thing_id", String(thingId));
+		data.append("cell_id", cellId);
+		data.append("cell_type", cellType);
+		data.append("new_val", newValue);
+
+		const response = await this.client.post<UpdateThingCellResponse>(
+			"/ajax/thing/cell/update/",
+			data,
+			{
+				headers: {
+					"content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+				},
+			},
+		);
+
+		return response.data;
+	}
+
+	/**
+	 * Overwrite several columns of one thing.
+	 *
+	 * Memrise only writes one cell per request, so this is a loop -- but it
+	 * resolves the column names first and fails before writing anything if a
+	 * name is wrong, rather than leaving the row half-updated.
+	 *
+	 * `/ajax/thing/cell/update/` answers `{"success": null}` whether or not it
+	 * wrote, so the row is read back afterwards and a mismatch is an error.
+	 */
+	async updateThing(
+		thingId: string | number,
+		columns: Record<string, string>,
+		cellType: ThingCellType = "column",
+	): Promise<UpdateThingResponse> {
+		const id = assertThingId(Number(thingId), "updateThing");
+
+		const entries = Object.entries(columns);
+		if (entries.length === 0) {
+			throw new Error(`updateThing needs at least one ${cellType} to write.`);
+		}
+
+		const resolved: Record<string, string> = {};
+		for (const [cell, value] of entries) {
+			resolved[await this.resolveCellId(thingId, cell, cellType)] = value;
+		}
+
+		for (const [cellId, value] of Object.entries(resolved)) {
+			const response = await this.updateThingCell(
+				thingId,
+				cellId,
+				value,
+				cellType,
+			);
+			if (response?.success === false) {
+				throw new Error(
+					`Memrise refused the update of ${cellType} ${cellId} on thing ${thingId}: ${JSON.stringify(response)}`,
+				);
+			}
+		}
+
+		const { thing } = await this.getThing(thingId);
+		const written =
+			(cellType === "column" ? thing.columns : thing.attributes) ?? {};
+		for (const [cellId, value] of Object.entries(resolved)) {
+			const cell = (written as Record<string, { val?: string } | undefined>)[
+				cellId
+			];
+			if (cell?.val !== value) {
+				throw new Error(
+					`Update of ${cellType} ${cellId} on thing ${thingId} did not stick: expected ${JSON.stringify(value)}, found ${JSON.stringify(cell?.val)}.`,
+				);
+			}
+		}
+
+		return { success: true, thingId: id, updated: resolved };
+	}
+
+	/** Which pool a thing lives in, so its cells can be named. */
+	private async poolIdForThing(thingId: string | number): Promise<number> {
+		const key = String(thingId);
+		const cached = this.poolIdByThing.get(key);
+		if (cached !== undefined) return cached;
+
+		const { thing } = await this.getThing(thingId);
+		if (thing?.pool_id == null) {
+			throw new Error(
+				`Thing ${thingId} did not report a pool, so its cells cannot be resolved by name. Pass numeric cell keys instead.`,
+			);
+		}
+
+		this.poolIdByThing.set(key, thing.pool_id);
+		return thing.pool_id;
+	}
+
+	/** Translate a cell label into the numeric key Memrise wants. */
+	private async resolveCellId(
+		thingId: string | number,
+		cell: string | number,
+		cellType: ThingCellType,
+	): Promise<string> {
+		const raw = String(cell).trim();
+		if (/^\d+$/.test(raw)) return raw;
+
+		const poolId = await this.poolIdForThing(thingId);
+		const byLabel =
+			cellType === "column"
+				? await this.columnKeysFor(poolId)
+				: await this.attributeKeysFor(poolId);
+
+		const key = byLabel.get(raw.toLowerCase());
+		if (!key) {
+			throw new Error(
+				`Pool ${poolId} has no ${cellType} named "${cell}". Available ${cellType}s: ${[...byLabel.keys()].join(", ")}.`,
+			);
+		}
+		return key;
 	}
 
 	async deleteThingFromLevel(
@@ -1131,6 +1291,25 @@ export class MemriseClient {
 		return byLabel;
 	}
 
+	private async attributeKeysFor(
+		poolId: string | number,
+	): Promise<Map<string, string>> {
+		const key = String(poolId);
+		const cached = this.attributeKeysByPool.get(key);
+		if (cached) return cached;
+
+		const { pool } = await this.getPool(poolId);
+		const byLabel = new Map<string, string>();
+		for (const [attributeKey, config] of Object.entries(
+			pool.attributes ?? {},
+		)) {
+			byLabel.set(config.label.trim().toLowerCase(), attributeKey);
+		}
+
+		this.attributeKeysByPool.set(key, byLabel);
+		return byLabel;
+	}
+
 	/**
 	 * Translate a row keyed by column name into the numeric keys Memrise
 	 * wants. Numeric keys pass through untouched, so callers that already
@@ -1170,10 +1349,7 @@ export class MemriseClient {
 		row: Record<string, string>,
 	): Promise<Record<string, string>> {
 		if (!Object.keys(row).some((key) => !/^\d+$/.test(key))) return { ...row };
-		return this.resolveColumnKeys(
-			await this.getPoolIdForLevelId(levelId),
-			row,
-		);
+		return this.resolveColumnKeys(await this.getPoolIdForLevelId(levelId), row);
 	}
 
 	/** Resolve named columns in bulk rows against the pool behind a level. */
@@ -1188,7 +1364,10 @@ export class MemriseClient {
 				Object.keys(row).some((key) => !/^\d+$/.test(key)),
 		);
 		if (!needsLookup) return rows;
-		return this.resolveRowsForPool(await this.getPoolIdForLevelId(levelId), rows);
+		return this.resolveRowsForPool(
+			await this.getPoolIdForLevelId(levelId),
+			rows,
+		);
 	}
 
 	/** Resolve named columns in bulk rows against a pool. */

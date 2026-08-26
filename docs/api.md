@@ -9,7 +9,7 @@ reading its JavaScript bundle, and probing endpoints against live courses.
 Everything marked **verified** below was exercised directly and is dated;
 anything else is marked as such. Endpoints can change without notice.
 
-Last verified: 2026-08-21.
+Last verified: 2026-08-26.
 
 ## Contents
 
@@ -255,6 +255,7 @@ are `{ "success": bool, … }`.
 | `/ajax/pool/get/` | GET | `pool_id` |
 | `/ajax/pool/search/` | GET | `pool_id`, `columns`, `exclude_thing_ids`, `original_only` |
 | `/ajax/thing/get/` | GET | `thing_id` |
+| `/ajax/thing/cell/update/` | POST | `thing_id`, `cell_id`, `cell_type`, `new_val` |
 | `/ajax/level/thing/add/` | POST | `level_id`, `columns` |
 | `/ajax/level/thing_remove/` | POST | `level_id`, `thing_id` |
 | `/ajax/level/add_things_in_bulk/` | POST | `level_id`, `data`, `word_delimiter` |
@@ -328,6 +329,24 @@ Adding to a **pool** creates rows without attaching them to any level; adding
 to a **level** does both. Both return the created things, and that response is
 the authoritative source of new thing IDs.
 
+### `POST /ajax/thing/cell/update/`
+
+Overwrites **one** cell of an existing thing. There is no multi-cell form, so
+editing a row means one request per field.
+
+```
+thing_id=504646011&cell_id=2&cell_type=column&new_val=Bear+edit
+```
+
+`cell_type` is `column` or `attribute`; `cell_id` is the numeric key from
+`/ajax/pool/get/` for that family. `new_val` replaces the value outright.
+
+**Verified** (2026-08-26). The response is `{"success": null}` — not `true` —
+whether or not it wrote, so it says nothing about the outcome. Read the row
+back with `/ajax/thing/get/` to confirm; `updateThing()` does this for you.
+`accepted` is regenerated from the new value, and the `choices` /
+`distractors` arrays refill from the rest of the pool.
+
 ## HTML surfaces
 
 Some data has no JSON equivalent. These are scrapes and correspondingly
@@ -368,12 +387,12 @@ live, but **not tested here** — no shapes or parameters confirmed:
 /ajax/course/pool/delete/           /ajax/pool/structure_add/
 /ajax/course/pool/levelify/         /ajax/pool/structure_delete/
 /ajax/course/pool/set_title/        /ajax/thing/add/
-/ajax/course/reorder_levels/        /ajax/thing/cell/update/
-/ajax/level/duplicate/              /ajax/thing/cell/upload_file/
-/ajax/level/reorder/                /ajax/thing/column/delete_from/
-/ajax/level/set_columns/            /ajax/thing/column/update_alts/
-/ajax/level/set_multimedia/         /ajax/thing/delete/
-/ajax/user/get/                     /ajax/user/mempals_following/
+/ajax/course/reorder_levels/        /ajax/thing/cell/upload_file/
+/ajax/level/duplicate/              /ajax/thing/column/delete_from/
+/ajax/level/reorder/                /ajax/thing/column/update_alts/
+/ajax/level/set_columns/            /ajax/thing/delete/
+/ajax/level/set_multimedia/         /ajax/user/mempals_following/
+/ajax/user/get/
 ```
 
 `/ajax/thing/delete/` and `/ajax/level/thing_remove/` are almost certainly
@@ -392,6 +411,8 @@ former.
   into the returned array silently drifts. Each level's own `index` field is
   1-based and authoritative — it matches the editor, gaps included — so match
   on that rather than on array position.
+- **`thing/cell/update/` always answers `{"success": null}`.** Success and
+  failure look identical; verify by reading the thing back.
 - **Learnable IDs are not thing IDs**, but they contain them. Passing a
   learnable ID to a thing endpoint fails.
 - **Learnable IDs exceed 2³²** (~3.3×10¹³) but stay inside `Number.MAX_SAFE_INTEGER`,
