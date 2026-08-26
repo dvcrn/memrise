@@ -143,12 +143,7 @@ function decodeHtmlEntities(text: string): string {
 	});
 }
 
-/**
- * Pull the rows out of one page of the editor's pool database.
- *
- * Split out from the request so the parsing -- the fragile half -- can be
- * exercised without the network.
- */
+/** Pull the rows out of one page of the editor's pool database. */
 export function parsePoolPage(
 	html: string,
 ): { thingId: number; values: string[] }[] {
@@ -184,9 +179,9 @@ const LEARNABLE_THING_SHIFT = 65536;
 const LEARNABLE_BATCH_SIZE = 200;
 
 /**
- * Safety stop when walking the editor's pool database pages. 20 rows a page,
- * so this covers 20k rows -- far past any real pool, and the loop exits on
- * the first empty page anyway.
+ * Safety stop when walking the editor's pool database pages. At 20 rows a
+ * page this covers 20,000 rows; the loop normally exits on the first empty
+ * page.
  */
 const POOL_PAGE_LIMIT = 1000;
 
@@ -672,12 +667,11 @@ export class MemriseClient {
 	}
 
 	/**
-	 * Overwrite one cell of an existing thing. One request, and the leanest
-	 * way to edit -- `updateThing` adds a read-back on top of this.
+	 * Overwrite one cell of an existing thing, in a single request.
 	 *
 	 * `cell` may be a column (or attribute) label or the numeric key Memrise
-	 * uses on the wire. A label needs the thing's pool, which costs a lookup
-	 * request unless `poolId` is passed or the pool is already known.
+	 * uses on the wire. Resolving a label needs the thing's pool, which is
+	 * looked up unless `poolId` is given.
 	 */
 	async updateThingCell(
 		thingId: string | number,
@@ -713,19 +707,14 @@ export class MemriseClient {
 	/**
 	 * Overwrite several cells of one thing, then confirm the write.
 	 *
-	 * Memrise writes one cell per request, so this is a loop -- but it
-	 * resolves the cell names first and fails before writing anything if a
-	 * name is wrong, rather than leaving the row half-updated.
+	 * Memrise writes one cell per request, so cell names are all resolved
+	 * before the first write; an unknown name fails the call rather than
+	 * leaving the row half-updated.
 	 *
-	 * `/ajax/thing/cell/update/` answers `{"success": null}` whether or not it
-	 * wrote -- and it really does drop writes under the account rate limit --
-	 * so the row is read back once at the end and a mismatch is an error.
-	 * That read is the only signal there is; `verify: false` trades it for one
-	 * fewer request.
-	 *
-	 * Cell names need the thing's pool. Pass `poolId` when you know it (from
-	 * a level, say) to save that lookup, or use numeric keys and skip
-	 * resolution entirely.
+	 * `/ajax/thing/cell/update/` answers `{"success": null}` whether or not
+	 * it wrote, and drops writes under the account rate limit, so the row is
+	 * read back once at the end and a mismatch is an error. `verify: false`
+	 * skips that read.
 	 */
 	async updateThing(
 		thingId: string | number,
@@ -826,8 +815,8 @@ export class MemriseClient {
 	 *
 	 * This is a detach, not a delete: levels share a pool, so the row stays
 	 * put and any other level using it is untouched. Rows detached from every
-	 * level linger in the pool -- see {@link findOrphanedThings} -- and
-	 * {@link deleteThing} is what actually destroys one.
+	 * level linger in the pool (see {@link findOrphanedThings});
+	 * {@link deleteThing} destroys the row itself.
 	 */
 	async detachThingFromLevel(
 		levelId: string | number,
@@ -854,8 +843,8 @@ export class MemriseClient {
 	}
 
 	/**
-	 * @deprecated Renamed to {@link detachThingFromLevel}, because that is
-	 * what it does -- the pool row survives. {@link deleteThing} deletes.
+	 * @deprecated Use {@link detachThingFromLevel}. It detaches the row from
+	 * one level; {@link deleteThing} is what destroys it.
 	 */
 	async deleteThingFromLevel(
 		levelId: string | number,
@@ -869,9 +858,9 @@ export class MemriseClient {
 	 *
 	 * Unlike {@link detachThingFromLevel} this cannot be undone and is not
 	 * scoped to one lesson: one pool backs every level of a course, so a row
-	 * shared by several levels disappears from all of them. Check what would
-	 * be affected first -- `getCourseItems(courseId)` reports each item's
-	 * `levelIds`.
+	 * shared by several levels disappears from all of them.
+	 * `getCourseItems(courseId)` reports each item's `levelIds`, which is
+	 * what would be affected.
 	 */
 	async deleteThing(thingId: string | number): Promise<DeleteThingResponse> {
 		assertThingId(Number(thingId), "deleteThing");
@@ -896,7 +885,7 @@ export class MemriseClient {
 			// unless the caller is told what it means.
 			if (axios.isAxiosError(error) && error.response?.status === 404) {
 				throw new Error(
-					`Thing ${thingId} does not exist, so it cannot be deleted. It may already be gone -- this endpoint is not idempotent.`,
+					`Thing ${thingId} does not exist, so it cannot be deleted. It may already be gone; this endpoint is not idempotent.`,
 					{ cause: error },
 				);
 			}
@@ -1052,12 +1041,7 @@ export class MemriseClient {
 		return response.data;
 	}
 
-	/**
-	 * The signed-in account, as `/v1.25/me/` reports it.
-	 *
-	 * The wrapping `profile` key is dropped, since the response carries
-	 * nothing else.
-	 */
+	/** The signed-in account, as `/v1.25/me/` reports it. */
 	async getMe(): Promise<Profile> {
 		await this.ensureAuthenticated();
 

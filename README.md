@@ -99,8 +99,7 @@ await client.deleteLevel("level-id");
 // Edit an existing item, by column name or numeric key
 await client.updateThing("thing-id", { Definition: "corrected" });
 
-// Cheaper: numeric keys and poolId skip lookups, verify: false skips the
-// read-back. One request instead of four.
+// Skip the name and pool lookups, and the verifying read-back
 await client.updateThing(
   "thing-id",
   { "2": "corrected" },
@@ -116,8 +115,8 @@ await client.updateThingCell("thing-id", "Pronunciation", "kon-ni-chi-wa", {
 // Read a single row, every column, by thing ID
 const { thing } = await client.getThing("thing-id");
 
-// Take a thing out of a level. The pool row survives -- other levels using it
-// are untouched.
+// Take a thing out of a level. The pool row survives, so other levels using
+// it are untouched.
 await client.detachThingFromLevel("level-id", "thing-id");
 
 // Destroy the pool row itself, removing it from every level at once
@@ -198,8 +197,8 @@ new MemriseClient(username: string, password: string, clientId?: string)
 **Editing Items:**
 
 - `getThing(thingId)` - Read one pool row, every column and attribute
-- `updateThing(thingId, columns, options?)` - Overwrite several cells of one thing, then read the row back to confirm. Options: `cellType` (`"column"` by default, or `"attribute"`), `poolId` (skips the lookup that resolves cell names), `verify` (`false` drops the read-back, saving a request)
-- `updateThingCell(thingId, cell, newValue, options?)` - Overwrite one cell in a single request. Options: `cellType`, `poolId`
+- `updateThing(thingId, columns, options?)` - Overwrite several cells of one thing, then read the row back to confirm. Options: `cellType` (`"column"` by default, or `"attribute"`), `poolId`, `verify` (`false` skips the read-back)
+- `updateThingCell(thingId, cell, newValue, options?)` - Overwrite one cell. Options: `cellType`, `poolId`
 
 **Pool Operations:**
 

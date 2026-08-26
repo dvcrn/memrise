@@ -88,7 +88,7 @@ export interface DeleteLevelResponse {
 export type ThingCellType = "column" | "attribute";
 
 export interface UpdateThingCellResponse {
-	/** Always `null` in practice -- the endpoint reports nothing useful. */
+	/** Always `null` in practice. The endpoint reports nothing about the write. */
 	success: boolean | null;
 	[key: string]: unknown;
 }
@@ -96,18 +96,15 @@ export interface UpdateThingCellResponse {
 export interface UpdateThingCellOptions {
 	/** Which family of cells to write. Defaults to `"column"`. */
 	cellType?: ThingCellType;
-	/**
-	 * Pool the thing belongs to. Only needed to resolve cell *names*, and only
-	 * as a shortcut: without it the pool costs one lookup request.
-	 */
+	/** Pool the thing belongs to. Resolves cell names without a lookup. */
 	poolId?: string | number;
 }
 
 export interface UpdateThingOptions extends UpdateThingCellOptions {
 	/**
-	 * Read the row back and confirm the new values are there. On by default,
-	 * because the endpoint reports the same thing whether or not it wrote.
-	 * Turning it off saves one request per call and trusts a silent API.
+	 * Read the row back and confirm the new values are there.
+	 *
+	 * @default true
 	 */
 	verify?: boolean;
 }
@@ -326,11 +323,7 @@ export interface ProfileStatistics {
 	num_things_flowered: number;
 }
 
-/**
- * The signed-in account. Fields below were observed on a live response; the
- * index signature covers the rest, since this payload carries whichever
- * subscription and entitlement flags the web client happens to need.
- */
+/** The signed-in account. */
 export interface Profile {
 	id: number;
 	username: string;
