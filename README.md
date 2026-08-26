@@ -116,10 +116,20 @@ await client.updateThingCell("thing-id", "Pronunciation", "kon-ni-chi-wa", {
 // Read a single row, every column, by thing ID
 const { thing } = await client.getThing("thing-id");
 
-// Remove a thing from a level
-await client.deleteThingFromLevel("level-id", "thing-id");
+// Take a thing out of a level. The pool row survives -- other levels using it
+// are untouched.
+await client.detachThingFromLevel("level-id", "thing-id");
 
-// List every thing in a level, with the thing IDs deleteThingFromLevel needs
+// Destroy the pool row itself, removing it from every level at once
+await client.deleteThing("thing-id");
+
+// Rows left in the pool that no level uses. Detaching creates these.
+const orphans = await client.findOrphanedThings("course-id");
+
+// Or the whole pool, each row with the levels it belongs to
+const poolThings = await client.getPoolThings("course-id");
+
+// List every thing in a level, with the thing IDs the delete calls need
 const levelThings = await client.getLevelThings("course-id", "level-id");
 
 // Or just the thing IDs, with no extra request for the text
@@ -182,7 +192,8 @@ new MemriseClient(username: string, password: string, clientId?: string)
 - `addLevelToCourse(courseId, poolId?, kind?)` - Add a new level to a course
 - `setLevelTitle(levelId, newTitle)` - Rename a level
 - `deleteLevel(levelId)` - Delete a level
-- `deleteThingFromLevel(levelId, thingId)` - Remove a thing from a level
+- `detachThingFromLevel(levelId, thingId)` - Take a thing out of one level. The pool row survives, so levels sharing it keep it (was `deleteThingFromLevel`, still available as a deprecated alias)
+- `deleteThing(thingId)` - Destroy a pool row outright. Removes it from every level at once and cannot be undone
 
 **Editing Items:**
 
@@ -196,6 +207,8 @@ new MemriseClient(username: string, password: string, clientId?: string)
 - `getPool(poolId)` - Get pool information
 - `getPoolIdForLevelId(levelId)` - Pool behind a level, without needing the course ID
 - `resolveColumnKeys(poolId, row)` - Translate column names to numeric keys
+- `getPoolThings(courseId)` - Every row in the course's pool, with the levels each belongs to. Scrapes the editor's database pages, the only way to see a pool whole
+- `findOrphanedThings(courseId)` - Pool rows no level uses
 
 ## Column names
 
@@ -242,7 +255,7 @@ silently returning the wrong level.
 
 Memrise exposes two identifiers for what looks like the same item:
 
-- **thing** — the row in the pool database. `deleteThingFromLevel`,
+- **thing** — the row in the pool database. `detachThingFromLevel`,
   `searchPool` and the `addThing*` responses all speak thing IDs.
 - **learnable** — a thing *plus* the pair of columns being tested. Levels and
   the course-facing APIs report learnable IDs.
@@ -267,7 +280,7 @@ which:
   types. They erase to plain numbers at runtime, but passing one where the
   other belongs is a compile error. Use `asThingId()` / `asLearnableId()` to
   brand a number from elsewhere.
-- **So does the runtime.** Passing a learnable ID to `deleteThingFromLevel`
+- **So does the runtime.** Passing a learnable ID to `detachThingFromLevel`
   throws immediately with the thing ID you probably meant, rather than failing
   somewhere downstream.
 

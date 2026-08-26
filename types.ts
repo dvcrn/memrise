@@ -126,6 +126,13 @@ export interface GetThingResponse {
 	[key: string]: unknown;
 }
 
+/** Response to detaching a thing from a level. */
+export interface DetachThingResponse {
+	success: boolean;
+	[key: string]: unknown;
+}
+
+/** Response to destroying a thing outright. */
 export interface DeleteThingResponse {
 	success: boolean;
 	[key: string]: unknown;
@@ -148,7 +155,7 @@ export interface ColumnPair {
 }
 
 export interface LevelThing {
-	/** Pool-authoring identity. This is what deleteThingFromLevel needs. */
+	/** Pool-authoring identity. This is what detachThingFromLevel needs. */
 	thingId: ThingId;
 	/** Course-facing identity the thing ID was derived from. */
 	learnableId: LearnableId;
@@ -156,6 +163,15 @@ export interface LevelThing {
 	definitionElement: string;
 	itemType: string;
 	difficulty: string;
+}
+
+/** A pool row as the editor's database pages report it. */
+export interface PoolThing {
+	thingId: ThingId;
+	/** Column values in column order, as displayed. Text only. */
+	values: string[];
+	/** Levels of the course this row is attached to. Empty means orphaned. */
+	levelIds: number[];
 }
 
 export interface PoolColumnConfig {

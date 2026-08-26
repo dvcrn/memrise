@@ -20,6 +20,7 @@ import type {
 	DashboardCourse,
 	DeleteLevelResponse,
 	DeleteThingResponse,
+	DetachThingResponse,
 	EnsureCsrfResponse,
 	GetDashboardCoursesResponse,
 	GetMeResponse,
@@ -29,6 +30,7 @@ import type {
 	Learnable,
 	LevelThing,
 	PoolColumnConfig,
+	PoolThing,
 	Profile,
 	SearchPoolResponse,
 	SetLevelTitleResponse,
@@ -116,6 +118,56 @@ export function formatBulkThingData(
 		.join("\n");
 }
 
+const HTML_ENTITIES: Record<string, string> = {
+	amp: "&",
+	lt: "<",
+	gt: ">",
+	quot: '"',
+	apos: "'",
+	nbsp: "\u00a0",
+};
+
+/** Turn the entities the editor emits back into the characters they stand for. */
+function decodeHtmlEntities(text: string): string {
+	return text.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (whole, body: string) => {
+		if (body.startsWith("#")) {
+			const codePoint =
+				body.startsWith("#x") || body.startsWith("#X")
+					? Number.parseInt(body.slice(2), 16)
+					: Number.parseInt(body.slice(1), 10);
+			return Number.isFinite(codePoint)
+				? String.fromCodePoint(codePoint)
+				: whole;
+		}
+		return HTML_ENTITIES[body.toLowerCase()] ?? whole;
+	});
+}
+
+/**
+ * Pull the rows out of one page of the editor's pool database.
+ *
+ * Split out from the request so the parsing -- the fragile half -- can be
+ * exercised without the network.
+ */
+export function parsePoolPage(
+	html: string,
+): { thingId: number; values: string[] }[] {
+	const rows = [
+		...String(html).matchAll(/data-thing-id="(\d+)"([\s\S]*?)<\/tr>/g),
+	];
+
+	return rows.map(([, rawId, body]) => ({
+		thingId: Number(rawId),
+		values: [
+			...(body ?? "").matchAll(
+				/<div class="[^"]*\btext\b[^"]*"[^>]*>([\s\S]*?)<\/div>/g,
+			),
+		].map((match) =>
+			decodeHtmlEntities(match[1]?.replace(/<[^>]*>/g, "") ?? "").trim(),
+		),
+	}));
+}
+
 /**
  * Learnable IDs are derived from the thing they were built from: the thing ID
  * occupies the high bits and the low 16 bits identify the column pair the
@@ -130,6 +182,13 @@ const LEARNABLE_THING_SHIFT = 65536;
  * accepted and 793 answers 414, so this leaves plenty of headroom.
  */
 const LEARNABLE_BATCH_SIZE = 200;
+
+/**
+ * Safety stop when walking the editor's pool database pages. 20 rows a page,
+ * so this covers 20k rows -- far past any real pool, and the loop exits on
+ * the first empty page anyway.
+ */
+const POOL_PAGE_LIMIT = 1000;
 
 /** /v1.25/dashboard/courses/ rejects a limit above this with a 400. */
 const DASHBOARD_MAX_PAGE_SIZE = 9;
@@ -762,18 +821,26 @@ export class MemriseClient {
 		return key;
 	}
 
-	async deleteThingFromLevel(
+	/**
+	 * Take a thing out of one level, leaving the pool row alone.
+	 *
+	 * This is a detach, not a delete: levels share a pool, so the row stays
+	 * put and any other level using it is untouched. Rows detached from every
+	 * level linger in the pool -- see {@link findOrphanedThings} -- and
+	 * {@link deleteThing} is what actually destroys one.
+	 */
+	async detachThingFromLevel(
 		levelId: string | number,
 		thingId: string | number,
-	): Promise<DeleteThingResponse> {
-		assertThingId(Number(thingId), "deleteThingFromLevel");
+	): Promise<DetachThingResponse> {
+		assertThingId(Number(thingId), "detachThingFromLevel");
 		await this.ensureAuthenticated();
 
 		const data = new URLSearchParams();
 		data.append("level_id", String(levelId));
 		data.append("thing_id", String(thingId));
 
-		const response = await this.client.post<DeleteThingResponse>(
+		const response = await this.client.post<DetachThingResponse>(
 			"/ajax/level/thing_remove/",
 			data,
 			{
@@ -784,6 +851,57 @@ export class MemriseClient {
 		);
 
 		return response.data;
+	}
+
+	/**
+	 * @deprecated Renamed to {@link detachThingFromLevel}, because that is
+	 * what it does -- the pool row survives. {@link deleteThing} deletes.
+	 */
+	async deleteThingFromLevel(
+		levelId: string | number,
+		thingId: string | number,
+	): Promise<DetachThingResponse> {
+		return this.detachThingFromLevel(levelId, thingId);
+	}
+
+	/**
+	 * Destroy a pool row outright, removing it from every level at once.
+	 *
+	 * Unlike {@link detachThingFromLevel} this cannot be undone and is not
+	 * scoped to one lesson: one pool backs every level of a course, so a row
+	 * shared by several levels disappears from all of them. Check what would
+	 * be affected first -- `getCourseItems(courseId)` reports each item's
+	 * `levelIds`.
+	 */
+	async deleteThing(thingId: string | number): Promise<DeleteThingResponse> {
+		assertThingId(Number(thingId), "deleteThing");
+		await this.ensureAuthenticated();
+
+		const data = new URLSearchParams();
+		data.append("thing_id", String(thingId));
+
+		try {
+			const response = await this.client.post<DeleteThingResponse>(
+				"/ajax/thing/delete/",
+				data,
+				{
+					headers: {
+						"content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+					},
+				},
+			);
+			return response.data;
+		} catch (error) {
+			// Deleting twice answers 404, which reads as a transport failure
+			// unless the caller is told what it means.
+			if (axios.isAxiosError(error) && error.response?.status === 404) {
+				throw new Error(
+					`Thing ${thingId} does not exist, so it cannot be deleted. It may already be gone -- this endpoint is not idempotent.`,
+					{ cause: error },
+				);
+			}
+			throw error;
+		}
 	}
 
 	/**
@@ -1423,6 +1541,90 @@ export class MemriseClient {
 			);
 		}
 		return resolved;
+	}
+
+	/**
+	 * Every row in a course's pool, attached or not, with the levels each one
+	 * belongs to.
+	 *
+	 * This is a **scrape**, and the only way to see a pool whole: the levels
+	 * endpoint reports attached rows only, and `/ajax/pool/search/` cannot
+	 * list without a search term. It walks the editor's database pages, 20
+	 * rows each, so a large pool costs a request per 20 rows.
+	 */
+	async getPoolThings(courseId: string | number): Promise<PoolThing[]> {
+		await this.ensureAuthenticated();
+
+		const course = await this.getCourseById(courseId);
+		if (!course) {
+			throw new Error(
+				`Course ${courseId} is not on your dashboard, so its pool pages cannot be read.`,
+			);
+		}
+
+		const levels = await this.getCourseLevelsIncludingEmpty(
+			courseId,
+			course.slug,
+		);
+		const firstLevel = levels[0];
+		if (!firstLevel) {
+			throw new Error(`No levels found for course ${courseId}.`);
+		}
+
+		// A level can test one row through several learnables, so collect
+		// level IDs in a set rather than one entry per learnable.
+		const levelsByThing = new Map<number, Set<number>>();
+		for (const level of levels) {
+			for (const learnableId of level.learnable_ids ?? []) {
+				const thingId = thingIdFromLearnableId(learnableId);
+				const attachedTo = levelsByThing.get(thingId) ?? new Set<number>();
+				attachedTo.add(level.id);
+				levelsByThing.set(thingId, attachedTo);
+			}
+		}
+
+		const things: PoolThing[] = [];
+		const seen = new Set<number>();
+
+		for (let page = 1; page <= POOL_PAGE_LIMIT; page++) {
+			const response = await this.client.get<string>(
+				`/course/${courseId}/${course.slug}/edit/database/${firstLevel.pool_id}/?page=${page}`,
+			);
+
+			const rows = parsePoolPage(String(response.data));
+			if (rows.length === 0) break;
+
+			let fresh = 0;
+			for (const row of rows) {
+				// Pages can overlap as rows shift; the first sighting wins.
+				if (seen.has(row.thingId)) continue;
+				seen.add(row.thingId);
+				fresh++;
+
+				things.push({
+					thingId: asThingId(row.thingId),
+					values: row.values,
+					levelIds: [...(levelsByThing.get(row.thingId) ?? [])],
+				});
+			}
+
+			// A page past the end may redirect back to one already read
+			// instead of coming back empty, which would run to the cap.
+			if (fresh === 0) break;
+		}
+
+		return things;
+	}
+
+	/**
+	 * Rows sitting in a course's pool that no level uses.
+	 *
+	 * Detaching leaves rows behind, so these accumulate. {@link deleteThing}
+	 * is what clears them.
+	 */
+	async findOrphanedThings(courseId: string | number): Promise<PoolThing[]> {
+		const things = await this.getPoolThings(courseId);
+		return things.filter((thing) => thing.levelIds.length === 0);
 	}
 
 	async getCourseColumns(

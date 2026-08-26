@@ -18,6 +18,7 @@ Last verified: 2026-08-26.
 - [Authentication](#authentication)
 - [JSON API (`/v1.25/`)](#json-api-v125)
 - [Editor AJAX (`/ajax/`)](#editor-ajax-ajax)
+  - [Detach versus delete](#detach-versus-delete)
 - [HTML surfaces](#html-surfaces)
 - [Endpoints seen but not exercised](#endpoints-seen-but-not-exercised)
 - [Gotchas](#gotchas)
@@ -150,7 +151,7 @@ correctness still comes from verifying membership against the level.
 > undocumented implementation detail. It is safe where a wrong answer surfaces
 > as "not found" — membership checks, enumerating a level. Never feed a derived
 > ID to a delete or overwrite that has not been confirmed against the API
-> first. `deleteThingFromLevel` in this client always receives the caller's
+> first. `detachThingFromLevel` in this client always receives the caller's
 > thing ID verbatim; derived IDs are only ever compared.
 
 ## Authentication
@@ -288,6 +289,7 @@ are `{ "success": bool, … }`.
 | `/ajax/thing/cell/update/` | POST | `thing_id`, `cell_id`, `cell_type`, `new_val` |
 | `/ajax/level/thing/add/` | POST | `level_id`, `columns` |
 | `/ajax/level/thing_remove/` | POST | `level_id`, `thing_id` |
+| `/ajax/thing/delete/` | POST | `thing_id` |
 | `/ajax/level/add_things_in_bulk/` | POST | `level_id`, `data`, `word_delimiter` |
 | `/ajax/pool/add_things_in_bulk/` | POST | `pool_id`, `data`, `word_delimiter` |
 | `/ajax/level/add/` | POST | `course_id`, `pool_id`, `kind` |
@@ -358,6 +360,29 @@ order, with `word_delimiter` naming the separator (`comma`, `tab` or
 Adding to a **pool** creates rows without attaching them to any level; adding
 to a **level** does both. Both return the created things, and that response is
 the authoritative source of new thing IDs.
+
+### Detach versus delete
+
+Two endpoints remove an item, and they are not interchangeable.
+
+| | `/ajax/level/thing_remove/` | `/ajax/thing/delete/` |
+| --- | --- | --- |
+| Params | `level_id`, `thing_id` | `thing_id` |
+| Effect | takes the row out of **one level** | destroys the **pool row** |
+| Other levels using it | unaffected | lose it too |
+| Repeat call | succeeds | **404** `Thing not found` |
+| Reversible | re-attach it | no |
+
+**Verified** (2026-08-26). `thing/delete/` answers `{"success": true}`, after
+which `/ajax/thing/get/` on that ID is a 404. A neighbouring row was untouched
+and the course's level count did not change, so the blast radius is the single
+row — but every level of a course normally shares **one** pool, so a row used
+by several levels disappears from all of them at once.
+
+Rows detached from every level stay in the pool forever and are invisible to
+the JSON API: `learnable_ids` only reports attached rows and `pool/search/`
+cannot list. Finding them means diffing the pool's database pages against the
+levels — `findOrphanedThings()` does this.
 
 ### `POST /ajax/thing/cell/update/`
 
@@ -446,16 +471,12 @@ live, but **not tested here** — no shapes or parameters confirmed:
 /ajax/course/reorder_levels/        /ajax/thing/cell/upload_file/
 /ajax/level/duplicate/              /ajax/thing/column/delete_from/
 /ajax/level/reorder/                /ajax/thing/column/update_alts/
-/ajax/level/set_columns/            /ajax/thing/delete/
+/ajax/level/set_columns/            /ajax/user/get/
 /ajax/level/set_multimedia/         /ajax/user/mempals_following/
-/ajax/user/get/
 ```
 
-`/ajax/thing/delete/` and `/ajax/level/thing_remove/` are almost certainly
-different operations — deleting the pool row outright versus detaching it from
-a single level — but only the latter has been exercised, and the distinction is
-inferred from naming rather than tested. Be careful before reaching for the
-former.
+Both `/ajax/thing/delete/` and `/ajax/level/thing_remove/` have now been
+exercised — see [detach versus delete](#detach-versus-delete).
 
 ## Gotchas
 
@@ -467,6 +488,8 @@ former.
   into the returned array silently drifts. Each level's own `index` field is
   1-based and authoritative — it matches the editor, gaps included — so match
   on that rather than on array position.
+- **Detaching is not deleting.** `level/thing_remove/` leaves the pool row in
+  place; only `thing/delete/` destroys it. See the table above.
 - **`thing/cell/update/` always answers `{"success": null}`.** Success and
   failure look identical; verify by reading the thing back.
 - **Learnable IDs are not thing IDs**, but they contain them. Passing a

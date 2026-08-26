@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
 	assertThingId,
+	parsePoolPage,
 	pickBulkDelimiter,
 	asThingId,
 	columnPairFromLearnableId,
@@ -169,6 +170,37 @@ test("the same thing under two pairings gives two learnable IDs", () => {
 	expect(thingIdFromLearnableId(b)).toBe(thingId);
 });
 
+// Trimmed from a real /edit/database/ page: two column cells and an audio
+// cell, whose markup carries no .text div.
+const POOL_PAGE_ROW = `<tbody class="things"><tr class="thing" data-thing-id="478064677">
+<td><i class="ico ico-close" data-role="delete" title="Delete word"></i></td>
+<td class="cell text column" data-key="1" data-cell-type="column"><div class="wrapper">
+<button class="edit-alts btn btn-small">Alts<i class="ico ico-s ico-edit"></i></button>
+<div class="text">l&#39;homme &amp; co</div></div></td>
+<td class="cell text column" data-key="2" data-cell-type="column"><div class="wrapper">
+<div class="text">the man</div></div></td>
+<td class="cell audio column" data-key="3" data-cell-type="column"><div class="btn-group">
+<div class="btn btn-mini files-add">Upload</div></div></td></tr></tbody>`;
+
+test("parsePoolPage reads the thing ID and its text cells", () => {
+	const rows = parsePoolPage(POOL_PAGE_ROW);
+
+	expect(rows).toHaveLength(1);
+	expect(rows[0]?.thingId).toBe(478064677);
+	// The audio cell has no .text div, so it contributes no value.
+	expect(rows[0]?.values).toEqual(["l'homme & co", "the man"]);
+});
+
+test("parsePoolPage returns nothing for a page with no rows", () => {
+	expect(parsePoolPage('<tbody class="things"></tbody>')).toEqual([]);
+});
+
+test("parsePoolPage finds .text however the class list is ordered", () => {
+	const html = `<tr data-thing-id="1"><td><div class="wrapper text left">hola</div></td></tr>`;
+
+	expect(parsePoolPage(html)[0]?.values).toEqual(["hola"]);
+});
+
 test("updateThing rejects an empty column set before hitting the API", async () => {
 	const client = offlineClient();
 
@@ -205,8 +237,8 @@ test("assertThingId rejects a learnable ID and names the right one", () => {
 });
 
 test("assertThingId names the calling method in the error", () => {
-	expect(() => assertThingId(33075772588290, "deleteThingFromLevel")).toThrow(
-		/^deleteThingFromLevel needs a thingId/,
+	expect(() => assertThingId(33075772588290, "detachThingFromLevel")).toThrow(
+		/^detachThingFromLevel needs a thingId/,
 	);
 });
 
