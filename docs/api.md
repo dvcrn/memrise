@@ -347,6 +347,25 @@ back with `/ajax/thing/get/` to confirm; `updateThing()` does this for you.
 `accepted` is regenerated from the new value, and the `choices` /
 `distractors` arrays refill from the rest of the pool.
 
+### `POST /ajax/level/delete/`
+
+```
+level_id=16405677
+```
+
+**Verified** (2026-08-26). The response is exactly `{"success": true}` — no
+other keys, and unlike `thing/cell/update/` the flag is meaningful. Deleting a
+level that is not there answers **404** rather than `{"success": false}`, so a
+repeat delete throws instead of being idempotent.
+
+A non-empty level answers the same `{"success": true}`, and its things survive
+in the pool — deleting a level detaches rows rather than destroying them, so
+the only way to see them afterwards is the database pages.
+
+Confirm a delete with `getCourseLevelsIncludingEmpty()`, not
+`/v1.25/courses/{id}/levels/` — the JSON endpoint omits empty levels, so a
+freshly created level looks deleted there before it is.
+
 ## HTML surfaces
 
 Some data has no JSON equivalent. These are scrapes and correspondingly
