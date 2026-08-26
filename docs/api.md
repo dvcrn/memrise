@@ -374,6 +374,13 @@ thing_id=504646011&cell_id=2&cell_type=column&new_val=Bear+edit
 **Verified** (2026-08-26). The response is `{"success": null}` — not `true` —
 whether or not it wrote, so it says nothing about the outcome. Read the row
 back with `/ajax/thing/get/` to confirm; `updateThing()` does this for you.
+
+**Writes are dropped silently under the account rate limit.** Observed once
+during testing: a 200 with the usual `{"success": null}`, and the row still
+held its old value on read-back. There is no error, no status code and no
+flag to distinguish this from a successful write, so the read-back is the
+only way to know. Budget requests accordingly — a named single-cell edit is
+four requests unless the pool is already known.
 `accepted` is regenerated from the new value, and the `choices` /
 `distractors` arrays refill from the rest of the pool.
 

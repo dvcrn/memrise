@@ -175,9 +175,9 @@ test("updateThing rejects an empty column set before hitting the API", async () 
 	expect(client.updateThing(504696237, {})).rejects.toThrow(
 		"at least one column",
 	);
-	expect(client.updateThing(504696237, {}, "attribute")).rejects.toThrow(
-		"at least one attribute",
-	);
+	expect(
+		client.updateThing(504696237, {}, { cellType: "attribute" }),
+	).rejects.toThrow("at least one attribute");
 });
 
 test("the cell edit calls reject a learnable ID", async () => {

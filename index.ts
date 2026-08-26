@@ -33,7 +33,9 @@ import type {
 	SearchPoolResponse,
 	SetLevelTitleResponse,
 	ThingCellType,
+	UpdateThingCellOptions,
 	UpdateThingCellResponse,
+	UpdateThingOptions,
 	UpdateThingResponse,
 } from "./types.js";
 
@@ -611,22 +613,24 @@ export class MemriseClient {
 	}
 
 	/**
-	 * Overwrite one cell of an existing thing.
+	 * Overwrite one cell of an existing thing. One request, and the leanest
+	 * way to edit -- `updateThing` adds a read-back on top of this.
 	 *
 	 * `cell` may be a column (or attribute) label or the numeric key Memrise
-	 * uses on the wire. A label costs one extra request the first time, to
-	 * learn which pool the thing lives in.
+	 * uses on the wire. A label needs the thing's pool, which costs a lookup
+	 * request unless `poolId` is passed or the pool is already known.
 	 */
 	async updateThingCell(
 		thingId: string | number,
 		cell: string | number,
 		newValue: string,
-		cellType: ThingCellType = "column",
+		options: UpdateThingCellOptions = {},
 	): Promise<UpdateThingCellResponse> {
 		assertThingId(Number(thingId), "updateThingCell");
 		await this.ensureAuthenticated();
 
-		const cellId = await this.resolveCellId(thingId, cell, cellType);
+		const cellType = options.cellType ?? "column";
+		const cellId = await this.resolveCellId(thingId, cell, cellType, options);
 
 		const data = new URLSearchParams();
 		data.append("thing_id", String(thingId));
@@ -648,21 +652,30 @@ export class MemriseClient {
 	}
 
 	/**
-	 * Overwrite several columns of one thing.
+	 * Overwrite several cells of one thing, then confirm the write.
 	 *
-	 * Memrise only writes one cell per request, so this is a loop -- but it
-	 * resolves the column names first and fails before writing anything if a
+	 * Memrise writes one cell per request, so this is a loop -- but it
+	 * resolves the cell names first and fails before writing anything if a
 	 * name is wrong, rather than leaving the row half-updated.
 	 *
 	 * `/ajax/thing/cell/update/` answers `{"success": null}` whether or not it
-	 * wrote, so the row is read back afterwards and a mismatch is an error.
+	 * wrote -- and it really does drop writes under the account rate limit --
+	 * so the row is read back once at the end and a mismatch is an error.
+	 * That read is the only signal there is; `verify: false` trades it for one
+	 * fewer request.
+	 *
+	 * Cell names need the thing's pool. Pass `poolId` when you know it (from
+	 * a level, say) to save that lookup, or use numeric keys and skip
+	 * resolution entirely.
 	 */
 	async updateThing(
 		thingId: string | number,
 		columns: Record<string, string>,
-		cellType: ThingCellType = "column",
+		options: UpdateThingOptions = {},
 	): Promise<UpdateThingResponse> {
 		const id = assertThingId(Number(thingId), "updateThing");
+		const cellType = options.cellType ?? "column";
+		const verify = options.verify ?? true;
 
 		const entries = Object.entries(columns);
 		if (entries.length === 0) {
@@ -671,21 +684,23 @@ export class MemriseClient {
 
 		const resolved: Record<string, string> = {};
 		for (const [cell, value] of entries) {
-			resolved[await this.resolveCellId(thingId, cell, cellType)] = value;
+			resolved[await this.resolveCellId(thingId, cell, cellType, options)] =
+				value;
 		}
 
 		for (const [cellId, value] of Object.entries(resolved)) {
-			const response = await this.updateThingCell(
-				thingId,
-				cellId,
-				value,
+			const response = await this.updateThingCell(thingId, cellId, value, {
 				cellType,
-			);
+			});
 			if (response?.success === false) {
 				throw new Error(
 					`Memrise refused the update of ${cellType} ${cellId} on thing ${thingId}: ${JSON.stringify(response)}`,
 				);
 			}
+		}
+
+		if (!verify) {
+			return { success: true, thingId: id, updated: resolved, verified: false };
 		}
 
 		const { thing } = await this.getThing(thingId);
@@ -697,12 +712,12 @@ export class MemriseClient {
 			];
 			if (cell?.val !== value) {
 				throw new Error(
-					`Update of ${cellType} ${cellId} on thing ${thingId} did not stick: expected ${JSON.stringify(value)}, found ${JSON.stringify(cell?.val)}.`,
+					`Update of ${cellType} ${cellId} on thing ${thingId} did not stick: expected ${JSON.stringify(value)}, found ${JSON.stringify(cell?.val)}. Memrise reports nothing on this endpoint and drops writes under its rate limit, so retry rather than assuming the value is set.`,
 				);
 			}
 		}
 
-		return { success: true, thingId: id, updated: resolved };
+		return { success: true, thingId: id, updated: resolved, verified: true };
 	}
 
 	/** Which pool a thing lives in, so its cells can be named. */
@@ -727,11 +742,12 @@ export class MemriseClient {
 		thingId: string | number,
 		cell: string | number,
 		cellType: ThingCellType,
+		options: UpdateThingCellOptions = {},
 	): Promise<string> {
 		const raw = String(cell).trim();
 		if (/^\d+$/.test(raw)) return raw;
 
-		const poolId = await this.poolIdForThing(thingId);
+		const poolId = options.poolId ?? (await this.poolIdForThing(thingId));
 		const byLabel =
 			cellType === "column"
 				? await this.columnKeysFor(poolId)

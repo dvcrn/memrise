@@ -93,11 +93,32 @@ export interface UpdateThingCellResponse {
 	[key: string]: unknown;
 }
 
+export interface UpdateThingCellOptions {
+	/** Which family of cells to write. Defaults to `"column"`. */
+	cellType?: ThingCellType;
+	/**
+	 * Pool the thing belongs to. Only needed to resolve cell *names*, and only
+	 * as a shortcut: without it the pool costs one lookup request.
+	 */
+	poolId?: string | number;
+}
+
+export interface UpdateThingOptions extends UpdateThingCellOptions {
+	/**
+	 * Read the row back and confirm the new values are there. On by default,
+	 * because the endpoint reports the same thing whether or not it wrote.
+	 * Turning it off saves one request per call and trusts a silent API.
+	 */
+	verify?: boolean;
+}
+
 export interface UpdateThingResponse {
 	success: boolean;
 	thingId: ThingId;
 	/** Cells written, in the order they were sent, keyed numerically. */
 	updated: Record<string, string>;
+	/** Whether the write was read back and confirmed. */
+	verified: boolean;
 }
 
 export interface GetThingResponse {
