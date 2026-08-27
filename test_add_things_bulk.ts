@@ -76,7 +76,10 @@ try {
 	console.log("\n3. Searching pool for the pool-added words...");
 	const missingFromPool: string[] = [];
 	for (const [word, definition] of poolRows) {
-		const search = await client.searchPool(poolId, { "1": word, "2": definition });
+		const search = await client.searchPool(poolId, {
+			"1": word,
+			"2": definition,
+		});
 		const match = search.result.find((item) => item.columns["1"]?.val === word);
 		if (match) {
 			console.log(`   found in pool: ${word} = ${definition} (id ${match.id})`);
