@@ -1,6 +1,6 @@
 /**
  * Memrise has two ID namespaces that are easy to confuse. These brands are
- * compile-time only -- they erase to plain numbers at runtime -- but they stop
+ * compile-time only (they erase to plain numbers at runtime), but they stop
  * a learnable ID being passed where a thing ID belongs.
  *
  * IDs handed back by this SDK are already branded. To brand a number from
@@ -80,6 +80,11 @@ export interface SetLevelTitleResponse {
 }
 
 export interface DeleteLevelResponse {
+	success: boolean;
+	[key: string]: unknown;
+}
+
+export interface SetLevelColumnsResponse {
 	success: boolean;
 	[key: string]: unknown;
 }
@@ -187,6 +192,44 @@ export interface PoolAttributeConfig {
 	kind: string;
 	label: string;
 	show_at_tests: boolean;
+}
+
+/**
+ * Per-column learning settings, as `/ajax/pool/columns/set/` accepts them.
+ *
+ * Every field is optional; anything omitted keeps the column's current value.
+ */
+export interface PoolColumnSettings {
+	/** Column heading shown in the editor and the learning experience. */
+	label?: string;
+	/**
+	 * Characters forming the on-screen keyboard. A space wraps to a new row.
+	 * Empty means the learner's own keyboard.
+	 */
+	keyboard?: string;
+	/** Render the text slightly larger, e.g. for Chinese. */
+	showBigger?: boolean;
+	/** Keep the text upright in contexts that would otherwise italicize it. */
+	neverItalicize?: boolean;
+	/** Suppress typing tests for this column. */
+	typingDisabled?: boolean;
+	/** Suppress tapping ('rearrange the words') tests for this column. */
+	tappingDisabled?: boolean;
+	/** Mark typing without ignoring spacing, capitalization or accents. */
+	typingStrict?: boolean;
+	/** Display the column even when it is not being tested on. */
+	alwaysShow?: boolean;
+	/** Display the column after a test. */
+	showAfterTests?: boolean;
+}
+
+export interface SetPoolColumnSettingsResponse {
+	/**
+	 * Whether the write was accepted. Named `saved`, so a caller checking
+	 * `success` here reads `undefined`.
+	 */
+	saved: boolean;
+	[key: string]: unknown;
 }
 
 export interface Pool {

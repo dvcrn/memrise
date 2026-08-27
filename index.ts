@@ -30,10 +30,13 @@ import type {
 	Learnable,
 	LevelThing,
 	PoolColumnConfig,
+	PoolColumnSettings,
 	PoolThing,
 	Profile,
 	SearchPoolResponse,
+	SetLevelColumnsResponse,
 	SetLevelTitleResponse,
+	SetPoolColumnSettingsResponse,
 	ThingCellType,
 	UpdateThingCellOptions,
 	UpdateThingCellResponse,
@@ -210,6 +213,45 @@ export function columnPairFromLearnableId(learnableId: number): ColumnPair {
 }
 
 /**
+ * Read a boolean column setting that the pool endpoint reports as a CSS class.
+ *
+ * `show_bigger` and `never_italicize` are accepted by
+ * `/ajax/pool/columns/set/` but come back only as entries in the column's
+ * `classes` list.
+ */
+export function classFlag(
+	column: { classes?: string[] },
+	className: string,
+): boolean {
+	return (column.classes ?? []).includes(className);
+}
+
+/**
+ * Resolve a column, given by label or numeric key, against columns already in
+ * hand. Numeric keys pass through; labels match case-insensitively.
+ */
+export function columnKeyFromColumns(
+	columns: Record<string, PoolColumnConfig>,
+	column: string | number,
+	poolId: string | number,
+): string {
+	const raw = String(column).trim();
+	if (/^\d+$/.test(raw)) return raw;
+
+	const wanted = raw.toLowerCase();
+	for (const [key, config] of Object.entries(columns)) {
+		if (config.label.trim().toLowerCase() === wanted) return key;
+	}
+
+	const labels = Object.values(columns).map((config) =>
+		config.label.trim().toLowerCase(),
+	);
+	throw new Error(
+		`Pool ${poolId} has no column named "${column}". Available columns: ${labels.join(", ")}.`,
+	);
+}
+
+/**
  * Build a learnable ID from a thing and the column pair being tested.
  *
  * The column pair belongs to the level, not the thing: one pool can feed
@@ -238,7 +280,7 @@ const MAX_PLAUSIBLE_THING_ID = 0xffffffff;
 /**
  * Guard a value that must be a thing ID.
  *
- * This exists for the error message, not for correctness -- callers that
+ * This exists for the error message, not for correctness. Callers that
  * mutate a level still verify membership. It turns the most common mistake
  * into an answer instead of a confusing failure downstream.
  */
@@ -625,6 +667,113 @@ export class MemriseClient {
 				},
 			},
 		);
+
+		return response.data;
+	}
+
+	/**
+	 * Set which pair of columns a level tests.
+	 *
+	 * `learningColumn` is what the learner is prompted with, `definitionColumn`
+	 * is what they are tested on. The pairing belongs to the level, not the
+	 * pool, so levels sharing a pool can test different pairs.
+	 *
+	 * Existing learnable IDs encode the old pair, so read the level again after
+	 * changing it rather than reusing IDs from before the call.
+	 */
+	async setLevelColumnPair(
+		levelId: string | number,
+		pair: ColumnPair,
+	): Promise<SetLevelColumnsResponse> {
+		await this.ensureAuthenticated();
+
+		const data = new URLSearchParams();
+		data.append("level_id", String(levelId));
+		data.append("column_a", String(pair.learningColumn));
+		data.append("column_b", String(pair.definitionColumn));
+
+		const response = await this.client.post<SetLevelColumnsResponse>(
+			"/ajax/level/set_columns/",
+			data,
+			{
+				headers: {
+					"content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+				},
+			},
+		);
+
+		return response.data;
+	}
+
+	/**
+	 * Update a pool column's display and testing settings.
+	 *
+	 * The endpoint replaces the whole column config, so omitted fields are
+	 * read back from the pool and resent unchanged. The column may be given by
+	 * label or by numeric key, and is resolved against that same read rather
+	 * than the name cache, which a concurrent rename could have left stale.
+	 */
+	async setPoolColumnSettings(
+		poolId: string | number,
+		column: string | number,
+		settings: PoolColumnSettings,
+	): Promise<SetPoolColumnSettingsResponse> {
+		await this.ensureAuthenticated();
+
+		const { pool } = await this.getPool(poolId);
+		const columnKey = columnKeyFromColumns(pool.columns, column, poolId);
+		const current = pool.columns[columnKey];
+		if (!current) {
+			throw new Error(
+				`Pool ${poolId} has no column ${columnKey}. Available columns: ${Object.keys(pool.columns).join(", ")}.`,
+			);
+		}
+
+		const merged = {
+			label: settings.label ?? current.label,
+			keyboard: settings.keyboard ?? current.keyboard,
+			show_bigger: settings.showBigger ?? classFlag(current, "bigger"),
+			never_italicize:
+				settings.neverItalicize ?? classFlag(current, "unitalic"),
+			typing_disabled: settings.typingDisabled ?? current.typing_disabled,
+			tapping_disabled: settings.tappingDisabled ?? current.tapping_disabled,
+			typing_strict: settings.typingStrict ?? current.typing_strict,
+			always_show: settings.alwaysShow ?? current.always_show,
+			show_after_tests: settings.showAfterTests ?? current.show_after_tests,
+		};
+
+		const data = new URLSearchParams();
+		data.append("pool_id", String(poolId));
+		data.append("column_key", columnKey);
+		// The pool shape is inferred, not contracted. A missing value would
+		// otherwise reach the wire as the string "undefined", and this endpoint
+		// replaces the whole config rather than patching it.
+		data.append("label", merged.label ?? "");
+		data.append("keyboard", merged.keyboard ?? "");
+		for (const flag of [
+			"show_bigger",
+			"never_italicize",
+			"typing_disabled",
+			"tapping_disabled",
+			"typing_strict",
+			"always_show",
+			"show_after_tests",
+		] as const) {
+			data.append(flag, merged[flag] ? "true" : "false");
+		}
+
+		const response = await this.client.post<SetPoolColumnSettingsResponse>(
+			"/ajax/pool/columns/set/",
+			data,
+			{
+				headers: {
+					"content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+				},
+			},
+		);
+
+		// The label may have changed, so the cached name lookup is stale.
+		this.columnKeysByPool.delete(String(poolId));
 
 		return response.data;
 	}
@@ -1193,8 +1342,8 @@ export class MemriseClient {
 	/**
 	 * Every item in a course, each tagged with the level it sits in.
 	 *
-	 * The level mapping is free -- it comes from the same levels response used
-	 * to collect the IDs -- and without it the result is a dead end, since
+	 * The level mapping is free, coming from the same levels response used
+	 * to collect the IDs, and without it the result is a dead end, since
 	 * removing an item needs the level it belongs to.
 	 */
 	async getCourseItems(
@@ -1386,7 +1535,7 @@ export class MemriseClient {
 	 *
 	 * The levels endpoint is course-scoped, so this consults a cache that every
 	 * getCourseLevels call populates, and falls back to sweeping the courses on
-	 * your dashboard. All JSON -- no page scraping.
+	 * your dashboard. All JSON, no page scraping.
 	 *
 	 * A level with no items is invisible to that endpoint. Levels created
 	 * through addLevelToCourse are cached at creation, but for anything else,
@@ -1442,6 +1591,27 @@ export class MemriseClient {
 
 		this.attributeKeysByPool.set(key, byLabel);
 		return byLabel;
+	}
+
+	/**
+	 * Translate a single column, given by label or numeric key, into the
+	 * numeric key Memrise wants. Numeric keys pass through without a lookup.
+	 */
+	async resolveColumnKey(
+		poolId: string | number,
+		column: string | number,
+	): Promise<string> {
+		const raw = String(column).trim();
+		if (/^\d+$/.test(raw)) return raw;
+
+		const byLabel = await this.columnKeysFor(poolId);
+		const key = byLabel.get(raw.toLowerCase());
+		if (!key) {
+			throw new Error(
+				`Pool ${poolId} has no column named "${column}". Available columns: ${[...byLabel.keys()].join(", ")}.`,
+			);
+		}
+		return key;
 	}
 
 	/**

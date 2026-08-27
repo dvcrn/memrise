@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import {
 	assertThingId,
+	classFlag,
+	columnKeyFromColumns,
 	parsePoolPage,
 	pickBulkDelimiter,
 	asThingId,
@@ -267,4 +269,39 @@ test("built output is loadable by Node's ESM resolver", async () => {
 		.filter((specifier) => !specifier.endsWith(".js"));
 
 	expect(extensionless).toEqual([]);
+});
+
+const POOL_COLUMNS = {
+	"1": { kind: "text", label: "Word", classes: [] },
+	"2": { kind: "text", label: "Definition", classes: ["bigger"] },
+	"3": { kind: "audio", label: "Audio", classes: [] },
+} as never;
+
+test("columnKeyFromColumns passes numeric keys through without a lookup", () => {
+	expect(columnKeyFromColumns(POOL_COLUMNS, 1, 7)).toBe("1");
+	expect(columnKeyFromColumns(POOL_COLUMNS, "2", 7)).toBe("2");
+});
+
+test("columnKeyFromColumns matches labels case-insensitively", () => {
+	expect(columnKeyFromColumns(POOL_COLUMNS, "Definition", 7)).toBe("2");
+	expect(columnKeyFromColumns(POOL_COLUMNS, "definition", 7)).toBe("2");
+	expect(columnKeyFromColumns(POOL_COLUMNS, "  Audio  ", 7)).toBe("3");
+});
+
+test("columnKeyFromColumns names the available columns when one is missing", () => {
+	expect(() => columnKeyFromColumns(POOL_COLUMNS, "Nope", 7)).toThrow(
+		/no column named "Nope".*word, definition, audio/,
+	);
+});
+
+test("columnKeyFromColumns does not resolve a numeric key that is absent", () => {
+	// Numeric keys pass through unchecked; the caller verifies the column.
+	expect(columnKeyFromColumns(POOL_COLUMNS, 99, 7)).toBe("99");
+});
+
+test("classFlag reads the settings the pool reports only as classes", () => {
+	expect(classFlag({ classes: ["bigger", "unitalic"] }, "bigger")).toBe(true);
+	expect(classFlag({ classes: ["bigger"] }, "unitalic")).toBe(false);
+	expect(classFlag({ classes: [] }, "bigger")).toBe(false);
+	expect(classFlag({}, "bigger")).toBe(false);
 });

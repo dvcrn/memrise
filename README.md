@@ -96,6 +96,18 @@ await client.setLevelTitle("level-id", "02/19");
 // Delete a level
 await client.deleteLevel("level-id");
 
+// Set what a level prompts with and what it tests on
+await client.setLevelColumnPair("level-id", {
+	learningColumn: 1,
+	definitionColumn: 2,
+});
+
+// Change a pool column's display and testing settings
+await client.setPoolColumnSettings("pool-id", "Definition", {
+	keyboard: "abc def",
+	typingStrict: true,
+});
+
 // Edit an existing item, by column name or numeric key
 await client.updateThing("thing-id", { Definition: "corrected" });
 
@@ -134,7 +146,7 @@ const levelThings = await client.getLevelThings("course-id", "level-id");
 // Or just the thing IDs, with no extra request for the text
 const thingIds = await client.getLevelThingIds("course-id", "level-id");
 
-// Search pool. At least one non-empty column value is required -- Memrise has
+// Search pool. At least one non-empty column value is required, because Memrise has
 // no "return everything" mode, use getLevelThings to enumerate instead.
 const results = await client.searchPool("pool-id", {
   "1": "search term",
@@ -190,6 +202,7 @@ new MemriseClient(username: string, password: string, clientId?: string)
 - `bulkAddToPool(poolId, rows, delimiter?)` - Bulk add items to a pool (not attached to a level)
 - `addLevelToCourse(courseId, poolId?, kind?)` - Add a new level to a course
 - `setLevelTitle(levelId, newTitle)` - Rename a level
+- `setLevelColumnPair(levelId, pair)` - Set which column the level prompts with (`learningColumn`) and which it tests on (`definitionColumn`). Level-scoped, so levels sharing a pool can test different pairs
 - `deleteLevel(levelId)` - Delete a level
 - `detachThingFromLevel(levelId, thingId)` - Take a thing out of one level. The pool row survives, so levels sharing it keep it (was `deleteThingFromLevel`, still available as a deprecated alias)
 - `deleteThing(thingId)` - Destroy a pool row outright. Removes it from every level at once and cannot be undone
@@ -203,9 +216,11 @@ new MemriseClient(username: string, password: string, clientId?: string)
 **Pool Operations:**
 
 - `searchPool(poolId, columns, excludeThingIds?, originalOnly?)` - Search pool. Requires at least one non-empty column value; an empty filter throws (the endpoint answers 500)
-- `getPool(poolId)` - Get pool information
+- `getPool(poolId)` - Get pool information, including each column's label and settings
+- `setPoolColumnSettings(poolId, column, settings)` - Update a column's display and testing settings. Omitted fields keep their current value
 - `getPoolIdForLevelId(levelId)` - Pool behind a level, without needing the course ID
 - `resolveColumnKeys(poolId, row)` - Translate column names to numeric keys
+- `resolveColumnKey(poolId, column)` - Translate one column name to its numeric key
 - `getPoolThings(courseId)` - Every row in the course's pool, with the levels each belongs to. Scrapes the editor's database pages, the only way to see a pool whole
 - `findOrphanedThings(courseId)` - Pool rows no level uses
 
@@ -254,9 +269,9 @@ silently returning the wrong level.
 
 Memrise exposes two identifiers for what looks like the same item:
 
-- **thing** — the row in the pool database. `detachThingFromLevel`,
+- **thing**: the row in the pool database. `detachThingFromLevel`,
   `searchPool` and the `addThing*` responses all speak thing IDs.
-- **learnable** — a thing *plus* the pair of columns being tested. Levels and
+- **learnable**: a thing *plus* the pair of columns being tested. Levels and
   the course-facing APIs report learnable IDs.
 
 A learnable ID packs both together: the thing ID sits in the high bits and the

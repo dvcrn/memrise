@@ -32,12 +32,12 @@ Five identifiers, easy to confuse:
 | --- | --- |
 | **course** | The top-level container a user teaches or learns. Has a numeric id and a slug. |
 | **pool** | The database of rows behind a course. Defines the *columns* (Word, Definition, Audio, …) and *attributes* (Pronunciation, Gender, …). |
-| **thing** | One row in a pool. This is the authoring identity — what you add and delete. |
+| **thing** | One row in a pool. This is the authoring identity: what you add and delete. |
 | **level** | An ordered selection of things, presented as a lesson. Several levels can share one pool. |
 | **learnable** | A thing *plus the pair of columns being tested*. This is the review-facing identity. |
 
 The distinction that matters: **levels report learnable IDs, but mutation
-endpoints take thing IDs.** One thing can back several learnables — the same
+endpoints take thing IDs.** One thing can back several learnables: the same
 row tested Word→Definition and Thai→Definition is two learnables.
 
 Column and attribute keys are numeric strings (`"1"`, `"2"`, …) everywhere,
@@ -61,7 +61,7 @@ So `thingId = learnableId >> 16`, and the low bytes are literal column indices:
                                      learning column 1
 ```
 
-Consecutive things in a level make this obvious — thing IDs step by 1 while
+Consecutive things in a level make this obvious, since thing IDs step by 1 while
 learnable IDs step by exactly 65536:
 
 ```
@@ -69,7 +69,7 @@ learnable_ids: [ 33075772588290, 33075772653826, 33075772719362 ]
 thing ids:     [      504696237,      504696238,      504696239 ]
 ```
 
-**Verified** (2026-08-21). The clearest evidence that the low bytes are real
+The clearest evidence that the low bytes are real
 column indices rather than padding comes from one pool feeding levels with
 different pairings. Pool `7776382` has columns `1=Word`, `2=Definition`,
 `3=Thai`:
@@ -106,7 +106,7 @@ That is a design decision, not an oversight:
 
 - **It could not be symmetric.** `Learnable` and `CourseLevel` could carry a
   derived thing ID, but `MemriseThing` and `SearchPoolResultItem` cannot carry a
-  learnable ID — that needs a level's column pair. An API where "responses carry
+  learnable ID, which needs a level's column pair. An API where "responses carry
   both" holds only half the time is worse than one where it never does.
 - **Provenance matters.** An ID the server sent and one computed from an
   undocumented bit layout are different kinds of fact. Blending them into one
@@ -129,8 +129,8 @@ resolve. Verified that a rebuilt ID resolves to the right learnable on levels
 using both `0x0102` and `0x0302` off the same pool, and that a wrong pairing
 resolves to nothing.
 
-Domain types this SDK defines carry both IDs where both are derivable —
-`getLevelThings()` yields `{ thingId, learnableId, … }` — so the bit unpacking
+Domain types this SDK defines carry both IDs where both are derivable
+(`getLevelThings()` yields `{ thingId, learnableId, … }`), so the bit unpacking
 lives in one place instead of in every consumer. Raw network response types
 (`MemriseThing`, `Learnable`, `SearchPoolResultItem`) stay exactly as the
 server sent them.
@@ -142,14 +142,14 @@ optional field that is sometimes populated.
 
 `ThingId` and `LearnableId` are branded types, erased at runtime, so the
 compiler rejects passing one where the other belongs. At runtime,
-`assertThingId()` catches the same mistake by magnitude — thing IDs sit around
-2^29 and learnable IDs start near 2^43, a comfortable 14-bit gap — and reports
+`assertThingId()` catches the same mistake by magnitude (thing IDs sit around
+2^29 and learnable IDs start near 2^43, a comfortable 14-bit gap) and reports
 the ID the caller probably meant. That check is for error quality only;
 correctness still comes from verifying membership against the level.
 
 > **Use it for lookups, not for destructive calls.** This packing is an
 > undocumented implementation detail. It is safe where a wrong answer surfaces
-> as "not found" — membership checks, enumerating a level. Never feed a derived
+> as "not found": membership checks, enumerating a level. Never feed a derived
 > ID to a delete or overwrite that has not been confirmed against the API
 > first. `detachThingFromLevel` in this client always receives the caller's
 > thing ID verbatim; derived IDs are only ever compared.
@@ -168,7 +168,7 @@ mint the web session.
 
 Afterwards, send the accumulated `cookie` on every request plus:
 
-- `x-csrftoken` — required for all `/ajax/` POSTs.
+- `x-csrftoken`: required for all `/ajax/` POSTs.
 - `x-requested-with: XMLHttpRequest`
 - `origin: https://community-courses.memrise.com`
 - A browser-like `user-agent`.
@@ -198,11 +198,11 @@ No params. Answers for whoever the session cookie belongs to.
     "business_model": { "value": "mode-locked-legacy" } } }
 ```
 
-**Verified** (2026-08-26). Everything sits under a single `profile` key, which
+Everything sits under a single `profile` key, which
 `getMe()` unwraps.
 
 Two fields read backwards from their names. `subscription.is_active` was
-`false` on a **Pro** account whose `expiry` is `9999-12-31T23:59:59Z` — the
+`false` on a **Pro** account whose `expiry` is `9999-12-31T23:59:59Z`. The
 subscription block describes a recurring billing subscription, not
 entitlement, so read `is_pro` for that. And `business_model.value` is a
 free-form string (`"mode-locked-legacy"` here), so it is left untyped.
@@ -238,7 +238,7 @@ The single most useful endpoint: `learnable_ids` gives a level's contents, and
 `>> 16` turns them into thing IDs with no further request.
 
 **Empty levels are omitted.** A level with no things does not appear here at
-all, which is why level *index* is an unreliable addressing scheme — parse the
+all, which is why level *index* is an unreliable addressing scheme. Parse the
 course edit page instead (see [HTML surfaces](#html-surfaces)). Verified on one
 course that reports 8 levels here and 10 on its edit page, the two extras being
 empty drafts.
@@ -269,8 +269,8 @@ Batch size is bounded by URL length, not a documented count:
 | 400 | 5618 | 200 |
 | 793 | 11120 | **414 URI Too Long** |
 
-This client chunks at 200. Payloads are large — each learnable embeds full
-`screens` data for every review template — so batching trades many small
+This client chunks at 200. Payloads are large, since each learnable embeds full
+`screens` data for every review template, so batching trades many small
 requests for a few big ones.
 
 `screens` also exposes the column *labels* and directions for the pair the
@@ -295,6 +295,8 @@ are `{ "success": bool, … }`.
 | `/ajax/level/add/` | POST | `course_id`, `pool_id`, `kind` |
 | `/ajax/level/delete/` | POST | `level_id` |
 | `/ajax/level/set_title/` | POST | `level_id`, `new_val` |
+| `/ajax/level/set_columns/` | POST | `level_id`, `column_a`, `column_b` |
+| `/ajax/pool/columns/set/` | POST | `pool_id`, `column_key`, `label`, `keyboard`, 7 flags |
 
 ### `GET /ajax/pool/get/`
 
@@ -324,12 +326,12 @@ Call this before writing rows, to map field names onto numeric keys.
 | `[]` | 400 `columns was not a dict` |
 | `{"1": ""}` | 400 `column_search must contain at least 1 characters.` |
 
-**Verified** (2026-08-21). The empty-object case answering a bare 500 rather
+The empty-object case answering a bare 500 rather
 than a 400 is what made this look like a size or pagination bug; it is neither,
 and it fails on pools of any size.
 
 The web editor never issues an unfiltered search. Its `searchable()` guard
-refuses to fire unless a value fails `/^[a-zA-Z\s]{0,2}$/` — i.e. it wants more
+refuses to fire unless a value fails `/^[a-zA-Z\s]{0,2}$/`, i.e. it wants more
 than two latin characters before it will even ask.
 
 To enumerate a pool or level, use `learnable_ids` from the levels endpoint.
@@ -348,7 +350,7 @@ Returns `{ success, result: [ { id, columns: { "1": { val } } } ] }`, where
     "attributes": { … } } }
 ```
 
-The authoritative view of a single row, including every column — not just the
+The authoritative view of a single row, including every column, not just the
 pair a learnable tests.
 
 ### Bulk add
@@ -373,16 +375,16 @@ Two endpoints remove an item, and they are not interchangeable.
 | Repeat call | succeeds | **404** `Thing not found` |
 | Reversible | re-attach it | no |
 
-**Verified** (2026-08-26). `thing/delete/` answers `{"success": true}`, after
+`thing/delete/` answers `{"success": true}`, after
 which `/ajax/thing/get/` on that ID is a 404. A neighbouring row was untouched
 and the course's level count did not change, so the blast radius is the single
-row — but every level of a course normally shares **one** pool, so a row used
+row. But every level of a course normally shares **one** pool, so a row used
 by several levels disappears from all of them at once.
 
 Rows detached from every level stay in the pool forever and are invisible to
 the JSON API: `learnable_ids` only reports attached rows and `pool/search/`
 cannot list. Finding them means diffing the pool's database pages against the
-levels — `findOrphanedThings()` does this.
+levels. `findOrphanedThings()` does this.
 
 ### `POST /ajax/thing/cell/update/`
 
@@ -396,7 +398,7 @@ thing_id=504646011&cell_id=2&cell_type=column&new_val=Bear+edit
 `cell_type` is `column` or `attribute`; `cell_id` is the numeric key from
 `/ajax/pool/get/` for that family. `new_val` replaces the value outright.
 
-**Verified** (2026-08-26). The response is `{"success": null}` — not `true` —
+The response is `{"success": null}`, not `true`,
 whether or not it wrote, so it says nothing about the outcome. Read the row
 back with `/ajax/thing/get/` to confirm; `updateThing()` does this for you.
 
@@ -404,7 +406,7 @@ back with `/ajax/thing/get/` to confirm; `updateThing()` does this for you.
 during testing: a 200 with the usual `{"success": null}`, and the row still
 held its old value on read-back. There is no error, no status code and no
 flag to distinguish this from a successful write, so the read-back is the
-only way to know. Budget requests accordingly — a named single-cell edit is
+only way to know. Budget requests accordingly: a named single-cell edit is
 four requests unless the pool is already known.
 `accepted` is regenerated from the new value, and the `choices` /
 `distractors` arrays refill from the rest of the pool.
@@ -415,23 +417,77 @@ four requests unless the pool is already known.
 level_id=16405677
 ```
 
-**Verified** (2026-08-26). The response is exactly `{"success": true}` — no
+The response is exactly `{"success": true}`, with no
 other keys, and unlike `thing/cell/update/` the flag is meaningful. Deleting a
 level that is not there answers **404** rather than `{"success": false}`, so a
 repeat delete throws instead of being idempotent.
 
 A non-empty level answers the same `{"success": true}`, and its things survive
-in the pool — deleting a level detaches rows rather than destroying them, so
+in the pool. Deleting a level detaches rows rather than destroying them, so
 the only way to see them afterwards is the database pages.
 
 Confirm a delete with `getCourseLevelsIncludingEmpty()`, not
-`/v1.25/courses/{id}/levels/` — the JSON endpoint omits empty levels, so a
+`/v1.25/courses/{id}/levels/`, because the JSON endpoint omits empty levels, so a
 freshly created level looks deleted there before it is.
+
+### `POST /ajax/level/set_columns/`
+
+```
+level_id=16264988&column_a=1&column_b=2
+```
+
+`column_a` is what the learner is **prompted with**, `column_b` is what they
+are **tested on**. The editor labels these "Prompt with" and "Test On"
+respectively, so the payload order is the reverse of the form's reading order.
+
+Answers `{"success": true}`.
+
+The pairing is stored on the **level**, not the pool, so levels sharing a pool
+can test different pairs. It does not appear in `/ajax/pool/get/` at all. Read
+it back from `learnable_ids` instead: the low 16 bits of a learnable ID are
+`(column_a << 8) | column_b`, which is what `getLevelColumnPair` decodes.
+
+Because learnable IDs encode the pair, every ID in the level changes when this
+is called. Re-read the level rather than reusing IDs from before the call.
+
+### `POST /ajax/pool/columns/set/`
+
+```
+pool_id=7778482&column_key=2&label=Definition&keyboard=abc+def
+&show_bigger=false&never_italicize=false&typing_disabled=false
+&tapping_disabled=false&typing_strict=false&always_show=false
+&show_after_tests=false
+```
+
+Answers `{"saved": true}`. The key is `saved`, not the `success` every
+neighbouring endpoint returns, so a caller checking `success` reads `undefined`.
+
+This is a **whole-config replace**, not a patch: every field must be sent on
+every call, and anything omitted reverts. `setPoolColumnSettings` reads the
+pool first and resends the unchanged fields so callers can pass one flag.
+
+Two of the flags do not round-trip under their own names. `/ajax/pool/get/`
+reports them as entries in the column's `classes` array instead:
+
+| Sent as | Read back as |
+| --- | --- |
+| `show_bigger=true` | `classes: ["bigger"]` |
+| `never_italicize=true` | `classes: ["unitalic"]` |
+
+The remaining five (`typing_disabled`, `tapping_disabled`, `typing_strict`,
+`always_show`, `show_after_tests`) round-trip as booleans of the same name.
+
+`keyboard` is the literal character set for the on-screen keyboard; a space
+wraps it onto a new row. Empty means the learner's own keyboard.
+
+Settings live on the pool, so they apply to every level sharing it. Which
+columns a level tests is a separate, level-scoped call (see
+`/ajax/level/set_columns/`).
 
 ## HTML surfaces
 
 Some data has no JSON equivalent. These are scrapes and correspondingly
-fragile — prefer the JSON paths above.
+fragile, so prefer the JSON paths above.
 
 ### `GET /ajax/level/editing_html/?level_id={id}`
 
@@ -440,15 +496,15 @@ Rows are `<tr class="thing" data-thing-id="…">` with cells carrying `data-key`
 and `data-cell-type="column|attribute"`, each wrapping a `<div class="text">`.
 
 Useful because it needs **only a level ID** (no course ID) and returns every
-column and attribute value in one request. This client no longer uses it —
-`learnable_ids >> 16` covers the same need in JSON — but it remains the only
+column and attribute value in one request. This client no longer uses it
+(`learnable_ids >> 16` covers the same need in JSON), but it remains the only
 single-request source of non-tested column values for a level.
 
 ### `GET /course/{courseId}/{slug}/edit/database/{poolId}/?page=N`
 
 The whole pool, 20 things per page, same `data-thing-id` row markup. Covers
 things not attached to any level, which `learnable_ids` cannot see. The slug is
-not checked — a wrong one 301s to the right URL — but the course ID is.
+not checked (a wrong one 301s to the right URL), but the course ID is.
 
 ### `GET /course/{courseId}/{slug}/edit/`
 
@@ -460,23 +516,22 @@ Lists every level *including empty ones*, as
 ## Endpoints seen but not exercised
 
 Present in the editor bundle (`/editing/dist/js/editing-*.js`) and presumably
-live, but **not tested here** — no shapes or parameters confirmed:
+live, but **not tested here**, with no shapes or parameters confirmed:
 
 ```
 /ajax/course/delete/                /ajax/pool/attributes/set/
-/ajax/course/picture/               /ajax/pool/columns/set/
-/ajax/course/pool/delete/           /ajax/pool/structure_add/
-/ajax/course/pool/levelify/         /ajax/pool/structure_delete/
-/ajax/course/pool/set_title/        /ajax/thing/add/
-/ajax/course/reorder_levels/        /ajax/thing/cell/upload_file/
-/ajax/level/duplicate/              /ajax/thing/column/delete_from/
-/ajax/level/reorder/                /ajax/thing/column/update_alts/
-/ajax/level/set_columns/            /ajax/user/get/
+/ajax/course/picture/               /ajax/pool/structure_add/
+/ajax/course/pool/delete/           /ajax/pool/structure_delete/
+/ajax/course/pool/levelify/         /ajax/thing/add/
+/ajax/course/pool/set_title/        /ajax/thing/cell/upload_file/
+/ajax/course/reorder_levels/        /ajax/thing/column/delete_from/
+/ajax/level/duplicate/              /ajax/thing/column/update_alts/
+/ajax/level/reorder/                /ajax/user/get/
 /ajax/level/set_multimedia/         /ajax/user/mempals_following/
 ```
 
 Both `/ajax/thing/delete/` and `/ajax/level/thing_remove/` have now been
-exercised — see [detach versus delete](#detach-versus-delete).
+exercised. See [detach versus delete](#detach-versus-delete).
 
 ## Gotchas
 
@@ -486,7 +541,7 @@ exercised — see [detach versus delete](#detach-versus-delete).
   result. See the table above.
 - **Level *positions* skip empty levels** in the JSON endpoint, so indexing
   into the returned array silently drifts. Each level's own `index` field is
-  1-based and authoritative — it matches the editor, gaps included — so match
+  1-based and authoritative (it matches the editor, gaps included), so match
   on that rather than on array position.
 - **Detaching is not deleting.** `level/thing_remove/` leaves the pool row in
   place; only `thing/delete/` destroys it. See the table above.
@@ -495,7 +550,7 @@ exercised — see [detach versus delete](#detach-versus-delete).
 - **Learnable IDs are not thing IDs**, but they contain them. Passing a
   learnable ID to a thing endpoint fails.
 - **Learnable IDs exceed 2³²** (~3.3×10¹³) but stay inside `Number.MAX_SAFE_INTEGER`,
-  so plain JS numbers are fine — no BigInt needed.
+  so plain JS numbers are fine, with no BigInt needed.
 - **Writes are immediately consistent.** `learnable_ids` reflects an add or a
   remove on the very next request; no cache delay was observed, which is what
   makes it usable for verifying a mutation.
