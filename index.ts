@@ -869,7 +869,6 @@ export class MemriseClient {
 	 *
 	 * `/ajax/thing/column/update_alts/` answers `{"success": null}` whether or
 	 * not it wrote, so the column is read back and a mismatch is an error.
-	 * `verify: false` skips that read.
 	 */
 	async setThingAlts(
 		thingId: string | number,

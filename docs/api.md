@@ -315,10 +315,9 @@ GET  /v1.25/courses/{courseId}/goal/     -> daily-goal state for the summary scr
 The scoring is the client's, not the server's. `register/` is told the outcome
 *and* the resulting counters (`growth_level`, `correct`, `attempts`, the
 streaks, `next_date`, `interval`), so the scheduling decision is made on the
-client and merely recorded here. The two `register/` posts from one session
-show this directly: the second continues the counters where the first left off
-(`mcp-update-probe` ends the first batch at `growth_level` 0 / `correct` 1 and
-climbs 1 -> 6 across the second), with nothing read back in between.
+client and merely recorded here. Successive `register/` posts from one session
+show this directly: the second batch continues each item's counters where the
+first left off, with nothing read back in between.
 
 `end/` carries only `session_points`, again a number the client arrived at
 itself. Nothing links it back to the events, so it is the summary screen's
