@@ -24,11 +24,21 @@ export function asLearnableId(id: number): LearnableId {
 	return id as LearnableId;
 }
 
+/**
+ * An alternative answer, as Memrise stores it. The `id` is positional within
+ * the cell and is reassigned on every write, so it is not a stable handle.
+ */
+export interface ThingAlt {
+	id: number;
+	val: string;
+}
+
 export interface MemriseColumn {
 	val: string;
 	kind: string;
+	/** Every answer marked correct: the value plus its alternatives, with the hidden-alt `_` prefix stripped. */
 	accepted: string[];
-	alts: string[];
+	alts: ThingAlt[];
 	choices: string[];
 	distractors: {
 		typing: string[];
@@ -119,6 +129,34 @@ export interface UpdateThingResponse {
 	thingId: ThingId;
 	/** Cells written, in the order they were sent, keyed numerically. */
 	updated: Record<string, string>;
+	/** Whether the write was read back and confirmed. */
+	verified: boolean;
+}
+
+export interface UpdateThingAltsResponse {
+	/** Always `null` in practice. The endpoint reports nothing about the write. */
+	success: boolean | null;
+	[key: string]: unknown;
+}
+
+export interface SetThingAltsOptions {
+	/** Pool the thing belongs to. Resolves a column name without a lookup. */
+	poolId?: string | number;
+	/**
+	 * Read the column back and confirm the alternatives are there.
+	 *
+	 * @default true
+	 */
+	verify?: boolean;
+}
+
+export interface SetThingAltsResponse {
+	success: boolean;
+	thingId: ThingId;
+	/** Numeric key of the column written. */
+	columnKey: string;
+	/** The alternatives the cell now holds, in order. */
+	alts: string[];
 	/** Whether the write was read back and confirmed. */
 	verified: boolean;
 }

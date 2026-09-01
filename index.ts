@@ -37,7 +37,10 @@ import type {
 	SetLevelColumnsResponse,
 	SetLevelTitleResponse,
 	SetPoolColumnSettingsResponse,
+	SetThingAltsOptions,
+	SetThingAltsResponse,
 	ThingCellType,
+	UpdateThingAltsResponse,
 	UpdateThingCellOptions,
 	UpdateThingCellResponse,
 	UpdateThingOptions,
@@ -851,6 +854,82 @@ export class MemriseClient {
 		);
 
 		return response.data;
+	}
+
+	/**
+	 * Replace the alternatives accepted for one column of a thing.
+	 *
+	 * Alternatives count as correct answers at test time and are listed under
+	 * "More" on presentation screens. Prefixing one with `_` keeps it accepted
+	 * but hides it from presentations, e.g. `"_cat"`.
+	 *
+	 * The list is an overwrite, not an append: pass every alternative the cell
+	 * should keep. Memrise renumbers them on each write, so their IDs are not
+	 * stable handles.
+	 *
+	 * `/ajax/thing/column/update_alts/` answers `{"success": null}` whether or
+	 * not it wrote, so the column is read back and a mismatch is an error.
+	 * `verify: false` skips that read.
+	 */
+	async setThingAlts(
+		thingId: string | number,
+		column: string | number,
+		alts: string[],
+		options: SetThingAltsOptions = {},
+	): Promise<SetThingAltsResponse> {
+		const id = assertThingId(Number(thingId), "setThingAlts");
+		await this.ensureAuthenticated();
+
+		for (const alt of alts) {
+			if (typeof alt !== "string" || alt.length === 0) {
+				throw new Error(
+					`setThingAlts takes a list of non-empty strings; got ${JSON.stringify(alt)}. Pass [] to clear the alternatives.`,
+				);
+			}
+		}
+
+		const columnKey = await this.resolveCellId(thingId, column, "column", {
+			poolId: options.poolId,
+		});
+
+		const data = new URLSearchParams();
+		data.append("thing_id", String(thingId));
+		data.append("column_key", columnKey);
+		data.append("alts", JSON.stringify(alts));
+
+		const response = await this.client.post<UpdateThingAltsResponse>(
+			"/ajax/thing/column/update_alts/",
+			data,
+			{
+				headers: {
+					"content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+				},
+			},
+		);
+		if (response.data?.success === false) {
+			throw new Error(
+				`Memrise refused the alternatives for column ${columnKey} on thing ${thingId}: ${JSON.stringify(response.data)}`,
+			);
+		}
+
+		if (options.verify === false) {
+			return { success: true, thingId: id, columnKey, alts, verified: false };
+		}
+
+		const { thing } = await this.getThing(thingId);
+		const written = (thing.columns?.[columnKey]?.alts ?? []).map(
+			(alt) => alt.val,
+		);
+		if (
+			written.length !== alts.length ||
+			written.some((val, index) => val !== alts[index])
+		) {
+			throw new Error(
+				`Alternatives for column ${columnKey} on thing ${thingId} did not stick: expected ${JSON.stringify(alts)}, found ${JSON.stringify(written)}. Memrise reports nothing on this endpoint, so retry rather than assuming they are set.`,
+			);
+		}
+
+		return { success: true, thingId: id, columnKey, alts: written, verified: true };
 	}
 
 	/**

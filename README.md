@@ -124,6 +124,12 @@ await client.updateThingCell("thing-id", "Pronunciation", "kon-ni-chi-wa", {
   cellType: "attribute",
 });
 
+// Replace a column's alternative answers. They are accepted at test time and
+// listed under "More" on presentations; an underscore prefix keeps one
+// accepted but hides it from presentations.
+await client.setThingAlts("thing-id", "Word", ["gato", "_el gato"]);
+await client.setThingAlts("thing-id", 1, []); // clear them
+
 // Read a single row, every column, by thing ID
 const { thing } = await client.getThing("thing-id");
 
@@ -212,6 +218,7 @@ new MemriseClient(username: string, password: string, clientId?: string)
 - `getThing(thingId)` - Read one pool row, every column and attribute
 - `updateThing(thingId, columns, options?)` - Overwrite several cells of one thing, then read the row back to confirm. Options: `cellType` (`"column"` by default, or `"attribute"`), `poolId`, `verify` (`false` skips the read-back)
 - `updateThingCell(thingId, cell, newValue, options?)` - Overwrite one cell. Options: `cellType`, `poolId`
+- `setThingAlts(thingId, column, alts, options?)` - Replace a column's alternative answers, then read them back to confirm. Alternatives are accepted at test time and shown under "More" on presentations; prefix one with `_` to accept it but hide it. The list overwrites, so pass everything the cell should keep, or `[]` to clear. Options: `poolId`, `verify`
 
 **Pool Operations:**
 

@@ -17,6 +17,7 @@ Last verified: 2026-08-26.
 - [Thing IDs are packed into learnable IDs](#thing-ids-are-packed-into-learnable-ids)
 - [Authentication](#authentication)
 - [JSON API (`/v1.25/`)](#json-api-v125)
+- [Learning sessions and progress (`/v1.25/`)](#learning-sessions-and-progress-v125)
 - [Editor AJAX (`/ajax/`)](#editor-ajax-ajax)
   - [Detach versus delete](#detach-versus-delete)
 - [HTML surfaces](#html-surfaces)
@@ -276,6 +277,187 @@ requests for a few big ones.
 `screens` also exposes the column *labels* and directions for the pair the
 learnable tests, which is a convenient cross-check on the ID packing.
 
+## Learning sessions and progress (`/v1.25/`)
+
+Everything above is authoring. This is the learner side: what the account has
+studied, how well, and when each item is next due. None of it is wired into
+this client yet; the shapes below come from watching a real session on the
+dummy course and from read-only probes afterwards.
+
+These endpoints take the same session cookie as the rest of `/v1.25/`, plus
+`x-csrftoken` on writes. The web client also sends `x-client-type: web`,
+`x-device-type`, `x-timezone` and friends; only the cookie and the CSRF token
+were needed to get a 200.
+
+### How a session hangs together
+
+Four endpoints, in order, all keyed by the same `session_source_*` triple. The
+session itself is not a server-side object with an ID: nothing is handed back
+to correlate the calls, and the triple plus the learnable IDs is the only
+thread between them.
+
+```
+POST /v1.25/learning_sessions/learn/     -> learnables + their current progress
+       (or .../review/ for due items)
+  |
+  |   the client runs the screens locally and scores each answer itself
+  v
+POST /v1.25/progress/register/           -> one event per answered test,
+       (repeatedly, batched)                 posted in batches as they pile up
+  |
+  v
+POST /v1.25/learning_sessions/end/       -> closes the session, session_points only
+  |
+  v
+GET  /v1.25/courses/{courseId}/goal/     -> daily-goal state for the summary screen
+```
+
+The scoring is the client's, not the server's. `register/` is told the outcome
+*and* the resulting counters (`growth_level`, `correct`, `attempts`, the
+streaks, `next_date`, `interval`), so the scheduling decision is made on the
+client and merely recorded here. The two `register/` posts from one session
+show this directly: the second continues the counters where the first left off
+(`mcp-update-probe` ends the first batch at `growth_level` 0 / `correct` 1 and
+climbs 1 -> 6 across the second), with nothing read back in between.
+
+`end/` carries only `session_points`, again a number the client arrived at
+itself. Nothing links it back to the events, so it is the summary screen's
+total rather than a checksum on them. `register/` alone is what moves an
+item's progress; the session bracket is bookkeeping around it.
+
+Batching is not per item: one batch carried dozens of events spanning every
+learnable in the level and all three test templates, in answer order, so an
+item appears once per test it was shown. `sync_token: 0` and
+`limit: 0` were sent on both posts and appear to be vestigial on the write
+path, where the same names on `GET /v1.25/progress/` are the real cursor.
+
+To read progress without any of this, skip the session endpoints and call
+`GET /v1.25/progress/`.
+
+### `POST /v1.25/learning_sessions/learn/`
+
+```jsonc
+{ "session_source_id": 6717539,
+  "session_source_type": "course_id_and_level_index",
+  "session_source_sub_index": 1 }
+```
+
+`session_source_type` is a fixed choice list; an unknown value answers
+400 `"x" is not a valid choice.` (`course_id` is *not* one of them). Response:
+
+```jsonc
+{ "learnables": [ { "id", "learning_element", "definition_element",
+                    "learning_element_tokens", "definition_element_tokens",
+                    "difficulty", "item_type", "screens",
+                    "sample_sentences", "pitch_accent", "kana" }, … ],
+  "progress": [ … see below … ],
+  "session_source_info": { "source_id", "source_type", "name",
+    "translated_name", "learnable_ids_to_course_ids", "num_due_for_review",
+    "level_id", "level_name", "source_sub_index", "template_id",
+    "parent_source_id", "parent_template_id" },
+  "settings": { "disable_multimedia", "disable_tapping",
+                "prioritize_typing", "disable_typing" } }
+```
+
+`screens` is keyed `"1"`..`"4"`: `presentation`, `multiple_choice`,
+`reversed_multiple_choice`, `typing`. The presentation screen carries the
+column values and their `alternatives` (hidden `_`-prefixed alts are already
+filtered out); the test screens carry `prompt`, `answer`, `correct`, `choices`,
+`is_strict` and `post_answer_info`.
+
+**`progress` is only populated for items the account has already touched.** On
+a course with no history it is `[]`, which is what makes it look like the
+endpoint has no progress data. The session also only returns items it intends
+to teach, so a fully-learned item drops out of both arrays.
+
+### `POST /v1.25/learning_sessions/review/`
+
+Same request and response shape, for items that are due rather than new.
+
+### `POST /v1.25/progress/register/`
+
+How answers are reported. The client batches them and posts
+
+```jsonc
+{ "events": [ … ], "sync_token": 0, "limit": 0 }
+```
+
+One event per test answered:
+
+```jsonc
+{ "box_template": "typing", "course_id": 6717539, "learnable_id": 31330459648258,
+  "test_id": "862e9822-…", "mem_id": null,
+  "learning_element": "AddLevel", "definition_element": "New level item",
+  "given_answer": "AddLevel", "score": 1, "points": 77, "bonus_points": 0,
+  "time_spent": 3948, "created_date": 1788257607, "when": 1788258318,
+  "last_date": 1788258318, "next_date": 1788273071, "interval": 0.1666,
+  "growth_level": 6, "correct": 6, "attempts": 7,
+  "current_streak": 3, "total_streak": 2,
+  "starred": false, "ignored": false, "not_difficult": false }
+```
+
+The counters are the item's running state *after* this answer, not this
+answer's outcome. Only `score` (1 or 0), `points` and `given_answer` describe
+the single test:
+
+- `correct` and `attempts` are cumulative for that learnable, and
+  `growth_level` tracked `correct` exactly across the observed session.
+- `current_streak` resets to 0 on a wrong answer; `total_streak` goes
+  *negative* (-1, -2) instead.
+- `next_date` and `interval` stay `null` until `growth_level` reaches 6, where
+  the item becomes scheduled: `interval: 0.1666` days, i.e. the first review
+  about four hours out.
+- `points` is 0 whenever `score` is 0. Correct answers were worth 1 point at
+  growth level 0 and 45-531 afterwards, so the award depends on more than the
+  streak alone.
+- `created_date` is the session start and repeats across every event in the
+  batch; `when` and `last_date` are per answer. All are epoch seconds, unlike
+  the ISO strings the read endpoints return.
+- `time_spent` is milliseconds.
+
+### `POST /v1.25/learning_sessions/end/`
+
+```jsonc
+{ "session_points": 2406, "session_type": "learn",
+  "session_source_type": "course_id_and_level_index",
+  "session_source_id": 6717539, "session_source_sub_index": 1 }
+```
+
+Scoring is registered by `progress/register/`, so this closes the session
+rather than carrying the results.
+
+### `GET /v1.25/progress/?sync_token={epoch}`
+
+**The whole account's per-item learning state, in one request.** Omitting
+`sync_token` is a 400 (`This field is required.`); `0` returns everything.
+
+```jsonc
+{ "sync_token": 1788258456,
+  "thingusers": [ { "learnable_id": 298237362434, "ignored": false,
+      "created_date": "2015-06-06T08:03:12", "last_date": "2015-06-06T12:21:25",
+      "next_date": "2015-06-06T16:21:39", "interval": 0.166837,
+      "growth_level": 6, "current_streak": 6, "total_streak": 9,
+      "correct": 9, "attempts": 9, "starred": 0, "not_difficult": 0 }, … ] }
+```
+
+`sync_token` is a cursor, not a page number: the returned value is the newest
+`last_date` in epoch seconds, and passing it back returns only rows that
+changed since. A full sync of one account came back as 1818 rows / 490 KB;
+the same call with a token from ten minutes earlier returned 11.
+
+Rows are keyed by **learnable** ID, so they carry the tested column pair, not
+just the thing. `growth_level` is not capped at the 6 a learn session reaches:
+long-studied items were seen up to 17.
+
+The same row appears in a session response's `progress` array in a slightly
+different shape: booleans instead of 0/1 for `starred` and `not_difficult`,
+`learnable_id` as a string, plus `user_id` and an extra `is_difficult`.
+
+### `GET /v1.25/courses/{courseId}/goal/`
+
+404 `{"detail": "Not found."}` on a course with no goal set. The shape when one
+exists has not been seen.
+
 ## Editor AJAX (`/ajax/`)
 
 POSTs are `application/x-www-form-urlencoded` and need `x-csrftoken`. Responses
@@ -352,6 +534,34 @@ Returns `{ success, result: [ { id, columns: { "1": { val } } } ] }`, where
 
 The authoritative view of a single row, including every column, not just the
 pair a learnable tests.
+
+`alts` is a list of `{ id, val }`, not of strings. The IDs are positional
+within the cell and are reassigned on every write, so they are not handles.
+`accepted` is the answers marked correct: the cell value plus its
+alternatives, with the hidden-alt `_` prefix stripped and duplicates removed.
+
+### `POST /ajax/thing/column/update_alts/`
+
+Params: `thing_id`, `column_key`, `alts` (a JSON-encoded list of strings).
+Columns only; attributes have no alternatives.
+
+Alternatives are accepted as correct answers at test time and are listed under
+"More" on presentation screens. One prefixed with `_` stays accepted but is
+hidden from presentations, e.g. `"_cat"`.
+
+The list is an **overwrite**, not an append: whatever is sent becomes the whole
+set, and `[]` clears it. Duplicates and surrounding whitespace are stored as
+given.
+
+| `alts` | Response |
+| --- | --- |
+| `["cat","_cat"]` | 200 `{"success": null}` |
+| `[]` | 200 `{"success": null}`, alternatives cleared |
+| `"notjson"` | 400 `alts must be a valid json list` |
+| any, with an unknown `column_key` | **500** |
+
+Like `thing/cell/update/`, it answers `{"success": null}` either way, so verify
+by reading the thing back.
 
 ### Bulk add
 
@@ -525,13 +735,15 @@ live, but **not tested here**, with no shapes or parameters confirmed:
 /ajax/course/pool/levelify/         /ajax/thing/add/
 /ajax/course/pool/set_title/        /ajax/thing/cell/upload_file/
 /ajax/course/reorder_levels/        /ajax/thing/column/delete_from/
-/ajax/level/duplicate/              /ajax/thing/column/update_alts/
-/ajax/level/reorder/                /ajax/user/get/
-/ajax/level/set_multimedia/         /ajax/user/mempals_following/
+/ajax/level/duplicate/              /ajax/user/get/
+/ajax/level/reorder/                /ajax/user/mempals_following/
+/ajax/level/set_multimedia/
 ```
 
 Both `/ajax/thing/delete/` and `/ajax/level/thing_remove/` have now been
 exercised. See [detach versus delete](#detach-versus-delete).
+`/ajax/thing/column/update_alts/` has too; see
+[update_alts](#post-ajaxthingcolumnupdate_alts).
 
 ## Gotchas
 
@@ -546,7 +758,10 @@ exercised. See [detach versus delete](#detach-versus-delete).
 - **Detaching is not deleting.** `level/thing_remove/` leaves the pool row in
   place; only `thing/delete/` destroys it. See the table above.
 - **`thing/cell/update/` always answers `{"success": null}`.** Success and
-  failure look identical; verify by reading the thing back.
+  failure look identical; verify by reading the thing back. So does
+  `thing/column/update_alts/`.
+- **Alternatives are replaced wholesale.** `update_alts` takes the complete
+  list, so read the current one first unless you mean to drop it.
 - **Learnable IDs are not thing IDs**, but they contain them. Passing a
   learnable ID to a thing endpoint fails.
 - **Learnable IDs exceed 2³²** (~3.3×10¹³) but stay inside `Number.MAX_SAFE_INTEGER`,
@@ -555,6 +770,11 @@ exercised. See [detach versus delete](#detach-versus-delete).
   remove on the very next request; no cache delay was observed, which is what
   makes it usable for verifying a mutation.
 - **Batch learnable URLs 414** past roughly 400 IDs.
+- **`progress` in a session response is empty until the account has studied
+  the course**, which reads as "no progress data here" when it is really "no
+  progress yet". `GET /v1.25/progress/` is the authoritative source.
+- **`sync_token` is a timestamp cursor**, not a page number. Pass `0` for
+  everything, or the last one you got for a delta.
 - **Bulk adds are delimiter-separated text**, so a value containing the
   delimiter corrupts every column after it. Commas are common in definitions,
   which made the obvious default the dangerous one. `pickBulkDelimiter()`
