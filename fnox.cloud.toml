@@ -1,0 +1,11 @@
+# Cloud-agent secrets, age-encrypted to the dedicated cloud key. Safe to commit.
+# Decrypt with FNOX_AGE_KEY from 1Password: "Age key — cloud-agent secrets (fnox.cloud.toml)".
+default_provider = "age"
+
+[providers.age]
+type = "age"
+recipients = ["age1j84a8smt77mpcqphyhfjz0g9gw0gehzad4yuvcerr856hw87gyvsq2hp0q"]
+
+[secrets]
+MEMRISE_USERNAME= { provider = "age", value = "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBTQ1RTa2dHSkpuUUFDdTlNMjJWUURtOXZPTFNDQ2tubjJGUm9vWnEwZWlVCmxvYXQ4MEkzQkxXU2ZzUVRsSkxsUWFGVFZLc0pVbVR6bDMzdzFBbDIvVHMKLT4ga0RoeWEtZ3JlYXNlICxvJXIvUVwgOj83MD1QICdQZk8KUjQ2Sks2Q1FMZHJwNnVCWjVid2tWTTJyWVVVTVByOW5JS25SeU5NZG1Sd282MW9HV0tMT0VwR21HYVpPMm5wRQpPQVhjNERzCi0tLSBPU0M0V1FLR2d0WWZrRUduc3hPU1dZd3dMMnNEbk8vYUFYVW0vUmJGZTlBChkXetqVtmdd8QzyCTmVdX6UoTUAr3n4Y2RUT0I2wLkEC1TbsaS1BPhII/aCiDNSzHax/Q==", if_missing = "error" }
+MEMRISE_PASSWORD= { provider = "age", value = "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBqblN4bVlmMTRqUm0wd0w4THVCcXJIK05UYmtRL21sT3FSc3VIczdsUlVZCjU1TFA0SVNxN3drQ2NRVFNpTXUwbXZRZTV4L2R5amd6RWo0V3ZJL29yUjQKLT4gJS1ncmVhc2UgYiA/IWt2CnIyMTNHclgyZHRIS0xyVmJpL05vVXMxNnkrOXNUVU01Q0kxOGNTQXh4cXVRUGp2QXZGdjZBOXF1aTJWOWJRQUIKWXJtcGUwVQotLS0gUFIxcnYyeldSeGZNd2l6c2NzOHAzWndWYnBLeit1d250UlFGVVBOQW5PMAqNdcT4DENuMGWsT/gGj2mBHbb4uI4obQKCwtcbt9aE+zmQUYkVL3O6I+xjRwuRLKBCFqI=", if_missing = "error" }
