@@ -231,6 +231,23 @@ complete when it is not.
                  "next_session", "goal", "progress" } ] }
 ```
 
+**`filter=teaching` takes about 9 seconds per page** regardless of `limit`
+(verified 2026-10-27 on two accounts). Without `filter` it answers in about
+350ms but lists the courses being learned instead, which is a different set.
+Avoid walking the dashboard just to look up one course.
+
+### `GET /v1.25/courses/{courseId}/`
+
+One course's public metadata, for any course, not only your own. Answers in
+about 350ms and 404s for an unknown ID (verified 2026-10-27). Carries no
+dashboard `progress`.
+
+```jsonc
+{ "courses": [ { "id", "name", "slug", "description", "creator_id",
+                 "num_levels", "num_things", "num_learners", "url",
+                 "target_language_code", … } ] }
+```
+
 ### `GET /v1.25/courses/{courseId}/levels/`
 
 ```jsonc

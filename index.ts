@@ -1377,6 +1377,27 @@ export class MemriseClient {
 		return courses.find((c) => String(c.id) === String(courseId)) ?? null;
 	}
 
+	/**
+	 * A course's URL slug from /v1.25/courses/{id}/, which answers in well
+	 * under a second where the teaching dashboard takes about nine.
+	 */
+	private async getCourseSlug(courseId: string | number): Promise<string> {
+		await this.ensureAuthenticated();
+
+		try {
+			const response = await this.client.get<{
+				courses: Array<{ slug: string }>;
+			}>(`/v1.25/courses/${courseId}/`);
+			const slug = response.data.courses[0]?.slug;
+			if (slug) return slug;
+		} catch (error) {
+			if (!axios.isAxiosError(error) || error.response?.status !== 404) {
+				throw error;
+			}
+		}
+		throw new Error(`Course ${courseId} not found`);
+	}
+
 	async getCourseBySlug(slug: string): Promise<DashboardCourse | null> {
 		const courses = await this.getAllMyCourses();
 		return courses.find((c) => c.slug === slug) ?? null;
@@ -1412,14 +1433,7 @@ export class MemriseClient {
 			byId.set(String(level.id), level);
 		}
 
-		let resolvedSlug = slug;
-		if (!resolvedSlug) {
-			const course = await this.getCourseById(courseId);
-			if (!course) {
-				throw new Error(`Course ${courseId} not found`);
-			}
-			resolvedSlug = course.slug;
-		}
+		const resolvedSlug = slug || (await this.getCourseSlug(courseId));
 
 		const response = await this.client.get<string>(
 			`/course/${courseId}/${resolvedSlug}/edit/`,
@@ -1835,17 +1849,8 @@ export class MemriseClient {
 	async getPoolThings(courseId: string | number): Promise<PoolThing[]> {
 		await this.ensureAuthenticated();
 
-		const course = await this.getCourseById(courseId);
-		if (!course) {
-			throw new Error(
-				`Course ${courseId} is not on your dashboard, so its pool pages cannot be read.`,
-			);
-		}
-
-		const levels = await this.getCourseLevelsIncludingEmpty(
-			courseId,
-			course.slug,
-		);
+		const slug = await this.getCourseSlug(courseId);
+		const levels = await this.getCourseLevelsIncludingEmpty(courseId, slug);
 		const firstLevel = levels[0];
 		if (!firstLevel) {
 			throw new Error(`No levels found for course ${courseId}.`);
@@ -1868,7 +1873,7 @@ export class MemriseClient {
 
 		for (let page = 1; page <= POOL_PAGE_LIMIT; page++) {
 			const response = await this.client.get<string>(
-				`/course/${courseId}/${course.slug}/edit/database/${firstLevel.pool_id}/?page=${page}`,
+				`/course/${courseId}/${slug}/edit/database/${firstLevel.pool_id}/?page=${page}`,
 			);
 
 			const rows = parsePoolPage(String(response.data));
