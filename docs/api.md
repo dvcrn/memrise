@@ -179,6 +179,11 @@ token. Setting an `authorization` header globally is unnecessary.
 
 `client_id` defaults to `1e739f5e77704b57a703` (the web client's public id).
 
+A login step can answer 502 (seen 2026-10-27 from a Cloud Run deployment;
+cause unverified, the same steps succeed from a laptop and from Cloud Shell).
+The client drops a failed login and retries it on the next call, and its error
+names the step and Memrise's response body.
+
 ## JSON API (`/v1.25/`)
 
 ### `GET /v1.25/me/`

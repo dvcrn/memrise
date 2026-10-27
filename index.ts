@@ -194,6 +194,27 @@ const POOL_PAGE_LIMIT = 1000;
 /** /v1.25/dashboard/courses/ rejects a limit above this with a 400. */
 const DASHBOARD_MAX_PAGE_SIZE = 9;
 
+/** Run one login request, naming the step and Memrise's response if it fails. */
+async function loginStep<T>(
+	step: string,
+	request: () => Promise<T>,
+): Promise<T> {
+	try {
+		return await request();
+	} catch (error) {
+		if (!axios.isAxiosError(error) || !error.response) throw error;
+		const body = String(
+			typeof error.response.data === "string"
+				? error.response.data
+				: JSON.stringify(error.response.data),
+		).slice(0, 300);
+		throw new Error(
+			`Memrise login failed at ${step}: HTTP ${error.response.status} ${body}`,
+			{ cause: error },
+		);
+	}
+}
+
 /**
  * Recover the thing ID a learnable was built from.
  *
@@ -310,7 +331,11 @@ export class MemriseClient {
 	private csrfToken: string | null;
 	private accessToken: string | null;
 	private cookieJar: Map<string, string>;
-	private authReady: Promise<void>;
+	private readonly username: string;
+	private readonly password: string;
+	private readonly clientId: string;
+	/** The login in flight or done; null after a failure so the next call retries. */
+	private authReady: Promise<void> | null;
 	private poolIdByLevel = new Map<string, number>();
 	private columnKeysByPool = new Map<string, Map<string, string>>();
 	private attributeKeysByPool = new Map<string, Map<string, string>>();
@@ -325,12 +350,25 @@ export class MemriseClient {
 		this.csrfToken = null;
 		this.accessToken = null;
 		this.cookieJar = new Map();
+		this.username = username;
+		this.password = password;
+		this.clientId = clientId;
 
-		this.authReady = this.authenticateWithCredentials(
-			username,
-			password,
-			clientId,
+		this.authReady = this.startAuthentication();
+	}
+
+	private startAuthentication(): Promise<void> {
+		const attempt = this.authenticateWithCredentials(
+			this.username,
+			this.password,
+			this.clientId,
 		);
+		// A long-lived client would otherwise replay one transient login
+		// failure on every call for the rest of the process.
+		attempt.catch(() => {
+			if (this.authReady === attempt) this.authReady = null;
+		});
+		return attempt;
 	}
 
 	private async authenticateWithCredentials(
@@ -338,18 +376,21 @@ export class MemriseClient {
 		password: string,
 		clientId: string,
 	): Promise<void> {
-		const csrf = await this.getCsrfToken();
+		const csrf = await loginStep("ensure_csrf", () => this.getCsrfToken());
 		if (csrf) {
 			this.csrfToken = csrf;
 			this.client.defaults.headers.common["x-csrftoken"] = csrf;
 		}
 
-		const access = await this.getAccessToken(username, password, clientId);
+		const access = await loginStep("auth/access_token", () =>
+			this.getAccessToken(username, password, clientId),
+		);
 		this.accessToken = access.access_token.access_token;
 		// Don't set authorization header globally - v1.25 endpoints use session cookies only
 		// this.client.defaults.headers.common['authorization'] = `Bearer ${this.accessToken}`;
 
-		await this.authenticateWeb(this.accessToken);
+		const token = this.accessToken;
+		await loginStep("auth/web", () => this.authenticateWeb(token));
 	}
 
 	private mergeSetCookieCookies(setCookieValues: string[]): void {
@@ -375,6 +416,7 @@ export class MemriseClient {
 	}
 
 	private async ensureAuthenticated(): Promise<void> {
+		this.authReady ??= this.startAuthentication();
 		await this.authReady;
 	}
 
@@ -928,7 +970,13 @@ export class MemriseClient {
 			);
 		}
 
-		return { success: true, thingId: id, columnKey, alts: written, verified: true };
+		return {
+			success: true,
+			thingId: id,
+			columnKey,
+			alts: written,
+			verified: true,
+		};
 	}
 
 	/**

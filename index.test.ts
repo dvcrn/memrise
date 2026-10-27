@@ -33,6 +33,25 @@ test("MemriseClient constructs and defers authentication", () => {
 	expect(client.csrfToken).toBeNull();
 });
 
+test("a failed login is retried on the next call instead of replayed", async () => {
+	const proto = MemriseClient.prototype as any;
+	const original = proto.authenticateWithCredentials;
+	let attempts = 0;
+	proto.authenticateWithCredentials = async () => {
+		attempts++;
+		if (attempts === 1) throw new Error("HTTP 502");
+	};
+	try {
+		const client = new MemriseClient("user@example.com", "x") as any;
+		await expect(client.ensureAuthenticated()).rejects.toThrow("HTTP 502");
+		await client.ensureAuthenticated();
+		await client.ensureAuthenticated();
+		expect(attempts).toBe(2);
+	} finally {
+		proto.authenticateWithCredentials = original;
+	}
+});
+
 test("formatBulkThingData passes through a raw string", () => {
 	expect(formatBulkThingData("foo,bar\nfoo2,bar2")).toBe("foo,bar\nfoo2,bar2");
 });
